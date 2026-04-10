@@ -462,13 +462,6 @@ they live in the `/config` volume.
 
 ---
 
-## Further reading
-
-- [`SYNOLOGY_SETUP.md`](SYNOLOGY_SETUP.md) — step-by-step for Synology
-  Container Manager (DSM 7.2+)
-
----
-
 ## Credits
 
 Made with ♥ by **Eric** (Discord: `@daseric`). Toggleable via the
