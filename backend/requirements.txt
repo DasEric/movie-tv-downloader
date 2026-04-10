@@ -1,0 +1,27 @@
+# --- web ---
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+websockets==13.1
+python-multipart==0.0.12
+
+# --- data / db ---
+pydantic==2.9.2
+pydantic-settings==2.5.2
+sqlmodel==0.0.22
+aiosqlite==0.20.0
+greenlet==3.1.1            # required by SQLAlchemy async
+
+# --- http / scraping ---
+curl_cffi==0.7.3            # Cloudflare-friendly TLS impersonation
+beautifulsoup4==4.12.3
+lxml==5.3.0
+tenacity==9.0.0
+
+# --- utils ---
+python-slugify==8.0.4
+aiofiles==24.1.0
+structlog==24.4.0
+apscheduler==3.10.4
+
+# --- subtitles (optional at runtime — import guarded) ---
+subliminal==2.2.1

@@ -1,0 +1,32 @@
+# Git / editor / CI
+build_docker.bat
+.git/
+.gitignore
+.github/
+.vscode/
+.idea/
+
+# Python cruft
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.venv/
+venv/
+
+# Node cruft
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+
+# Runtime data
+data/
+
+# OS cruft
+.DS_Store
+Thumbs.db
