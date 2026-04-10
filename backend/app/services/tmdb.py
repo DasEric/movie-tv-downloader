@@ -65,6 +65,58 @@ async def search_tv(query: str) -> list[dict]:
     return [_map_tv(r) for r in data.get("results", [])[:15]]
 
 
+async def upcoming_movies() -> list[dict]:
+    """Movies that are not yet released (theatrical or otherwise)."""
+    data = await _get("/movie/upcoming", {"page": "1"})
+    if not data:
+        return []
+    today = datetime.utcnow().date()
+    out = [_map_movie(r) for r in data.get("results", [])[:30]]
+    # Filter to TRULY unreleased (TMDB's upcoming endpoint sometimes
+    # includes titles that released last week in other regions).
+    return [r for r in out if r.get("release_date") and r["release_date"].date() > today]
+
+
+async def upcoming_tv() -> list[dict]:
+    """TV shows with a first-air date in the future ("on the air" endpoint
+    returns currently airing — we actually want the 'airing today' + manual
+    date filter). TMDB has no dedicated 'upcoming tv' endpoint, so we use
+    discover with a `first_air_date.gte=<today>` filter."""
+    today = datetime.utcnow().date().isoformat()
+    data = await _get(
+        "/discover/tv",
+        {
+            "first_air_date.gte": today,
+            "sort_by": "first_air_date.asc",
+            "page": "1",
+        },
+    )
+    if not data:
+        return []
+    return [_map_tv(r) for r in data.get("results", [])[:30]]
+
+
+async def search_movie_with_year(title: str, year: int | None = None) -> list[dict]:
+    """Search movies optionally constrained to a release year."""
+    params: dict[str, Any] = {"query": title}
+    if year:
+        params["year"] = str(year)
+    data = await _get("/search/movie", params)
+    if not data:
+        return []
+    return [_map_movie(r) for r in data.get("results", [])[:15]]
+
+
+async def search_tv_with_year(title: str, year: int | None = None) -> list[dict]:
+    params: dict[str, Any] = {"query": title}
+    if year:
+        params["first_air_date_year"] = str(year)
+    data = await _get("/search/tv", params)
+    if not data:
+        return []
+    return [_map_tv(r) for r in data.get("results", [])[:15]]
+
+
 async def tv_episode(show_id: int, season: int, episode: int) -> dict | None:
     data = await _get(f"/tv/{show_id}/season/{season}/episode/{episode}")
     if not data:

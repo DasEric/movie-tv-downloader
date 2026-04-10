@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import threading
 from pathlib import Path
 from typing import Callable
 
@@ -18,6 +19,10 @@ from app.config import settings
 log = logging.getLogger(__name__)
 
 ProgressCB = Callable[[dict], None]
+
+
+class DownloadCancelled(Exception):
+    """Raised from the yt-dlp progress hook to abort an in-flight download."""
 
 QUALITY_MAP = {
     "480p": "bestvideo[height<=480]+bestaudio/best[height<=480]/best",
@@ -71,20 +76,31 @@ async def download(
     quality: str,
     on_progress: ProgressCB,
     http_headers: dict[str, str] | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> Path:
     """
     Download `url` to `out_path` (template — yt-dlp fills in `%(ext)s`).
     Returns the final file path — the actual file that ended up on disk
     after any stream merging.
 
-    The yt-dlp progress hook fires on the executor thread; we bounce it
-    back onto the event loop via call_soon_threadsafe.
+    `cancel_event` lets callers abort an in-flight download. The progress
+    hook checks it on every tick and raises `DownloadCancelled` when set,
+    which causes yt-dlp to abort at the next fragment boundary. Plain
+    `task.cancel()` alone doesn't work because yt-dlp runs in a thread
+    executor and Python can't cancel threads from outside.
+
+    The yt-dlp progress hook fires on the executor thread; we bounce
+    progress updates back onto the event loop via call_soon_threadsafe.
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     loop = asyncio.get_running_loop()
     final_path_holder: dict[str, Path] = {}
 
     def _thread_hook(d: dict) -> None:
+        # Check the cancel flag on every hook call. Raising here aborts
+        # the download inside yt-dlp at the next fragment boundary.
+        if cancel_event is not None and cancel_event.is_set():
+            raise DownloadCancelled("user cancelled the download")
         try:
             status = d.get("status")
             if status == "downloading":
@@ -106,18 +122,40 @@ async def download(
                 loop.call_soon_threadsafe(
                     on_progress, {"status": "finished", "percent": 100.0}
                 )
+        except DownloadCancelled:
+            # Let cancellation escape so yt-dlp sees it and aborts.
+            raise
         except Exception as e:
             log.debug("progress hook failed: %s", e)
 
     def run() -> str:
         opts = _ydl_opts(out_path, quality, _thread_hook, http_headers)
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            # prepare_filename uses info['ext'] which yt-dlp updates to
-            # the merged container after download.
-            return ydl.prepare_filename(info)
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                # prepare_filename uses info['ext'] which yt-dlp updates to
+                # the merged container after download.
+                return ydl.prepare_filename(info)
+        except DownloadCancelled:
+            # Re-raise our sentinel so the caller can turn it into
+            # asyncio.CancelledError and the worker cleanup runs.
+            raise
+        except Exception as e:
+            # yt-dlp wraps arbitrary exceptions from the hook in a
+            # DownloadError. Sniff for our sentinel inside the message
+            # or the cause chain so cancellation still propagates.
+            if isinstance(getattr(e, "__cause__", None), DownloadCancelled):
+                raise DownloadCancelled() from e
+            if "user cancelled the download" in str(e):
+                raise DownloadCancelled() from e
+            raise
 
-    filename = await loop.run_in_executor(None, run)
+    try:
+        filename = await loop.run_in_executor(None, run)
+    except DownloadCancelled:
+        # Translate into the asyncio cancellation type so the worker's
+        # existing `except CancelledError` branch handles it.
+        raise asyncio.CancelledError()
 
     # Resolution order:
     #   1. yt-dlp's prepare_filename (post-merge, authoritative)

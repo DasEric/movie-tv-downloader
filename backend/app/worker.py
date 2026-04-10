@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import shutil
+import threading
 import time
 import uuid
 
@@ -27,6 +28,22 @@ from app.services.postprocess import finalize_movie, finalize_tv
 log = logging.getLogger(__name__)
 
 
+# Per-item cancel flags. The queue manager calls `signal_cancel(item_id)` on
+# delete/pause/stop-all, which sets the threading.Event. The downloader's
+# progress hook checks this flag on every tick and aborts yt-dlp at the
+# next fragment boundary. Without this, task.cancel() only stops the
+# coroutine — the underlying executor thread (running yt-dlp) keeps going
+# and wastes bandwidth on a download that will be thrown away.
+_cancel_events: dict[int, threading.Event] = {}
+
+
+def signal_cancel(item_id: int) -> None:
+    """Tell the downloader thread to abort its in-flight download."""
+    evt = _cancel_events.get(item_id)
+    if evt is not None:
+        evt.set()
+
+
 async def process_item(item_id: int) -> None:
     item = await queue_manager.get(item_id)
     if not item:
@@ -38,6 +55,8 @@ async def process_item(item_id: int) -> None:
     )
 
     tmp_dir = settings.tmp_path / f"{item.id}-{uuid.uuid4().hex[:8]}"
+    cancel_event = threading.Event()
+    _cancel_events[item_id] = cancel_event
 
     try:
         scraper = get_scraper(item.source)
@@ -102,6 +121,7 @@ async def process_item(item_id: int) -> None:
             quality,
             on_progress,
             http_headers=stream.headers,
+            cancel_event=cancel_event,
         )
 
         # ---- post-process (ffmpeg -> mp4 -> plex path) ----
@@ -143,6 +163,13 @@ async def process_item(item_id: int) -> None:
         )
         log.info("✔ completed #%d: %s", item.id, final_path)
 
+    except asyncio.CancelledError:
+        # User cancelled via delete / pause / stop-all — don't treat as failure.
+        log.info("⏸ cancelled #%d (user action)", item_id)
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise
+
     except Exception as e:
         log.exception("✖ failed #%d: %s", item_id, e)
         # Clean the tmp scratch dir so failed attempts don't pile up
@@ -162,6 +189,10 @@ async def process_item(item_id: int) -> None:
             f"{(current.title if current else item_id)}\n{e}",
             success=False,
         )
+
+    finally:
+        # Always remove the cancel flag so it doesn't leak across retries.
+        _cancel_events.pop(item_id, None)
 
 
 # ------------- helpers -------------

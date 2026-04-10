@@ -137,6 +137,20 @@ class AniworldScraper(BaseScraper):
             "seasons": sorted(seasons),
         }
 
+    async def episode_has_language(
+        self, slug: str, season: int, episode: int, language: str
+    ) -> bool:
+        """True iff at least one provider entry for the given data-lang-key
+        exists on the episode page. Used by the SeasonWatch scheduler."""
+        url = f"{BASE}/anime/stream/{slug}/staffel-{season}/episode-{episode}"
+        try:
+            html = await get(url)
+        except Exception:
+            return False
+        target_key = LANG_KEY.get(language, "1")
+        hosters = self._parse_providers(html, target_key)
+        return bool(hosters)
+
     async def get_stream(self, ep: EpisodeRef) -> StreamCandidate:
         url = f"{BASE}/anime/stream/{ep.slug}/staffel-{ep.season}/episode-{ep.episode}"
         html = await get(url)

@@ -4,9 +4,11 @@ import { QueueView } from "./components/QueueView";
 import { AddView } from "./components/AddView";
 import { LogsView } from "./components/LogsView";
 import { SettingsView } from "./components/SettingsView";
+import { UpcomingView } from "./components/UpcomingView";
+import { WatchlistView } from "./components/WatchlistView";
 import { api, QueueItem, openEventsSocket } from "./api";
 
-type Tab = "queue" | "add" | "logs" | "settings";
+type Tab = "queue" | "add" | "watchlist" | "upcoming" | "logs" | "settings";
 
 export default function App() {
   const { t, i18n } = useTranslation();
@@ -65,7 +67,9 @@ export default function App() {
           H<span>0</span>melab Downloader
         </div>
         <div className="tabs">
-          {(["queue", "add", "logs", "settings"] as Tab[]).map((k) => (
+          {(
+            ["queue", "add", "watchlist", "upcoming", "logs", "settings"] as Tab[]
+          ).map((k) => (
             <button
               key={k}
               className={"tab " + (tab === k ? "active" : "")}
@@ -97,6 +101,10 @@ export default function App() {
       <main>
         {tab === "queue" && <QueueView items={items} counts={counts} />}
         {tab === "add" && <AddView />}
+        {tab === "watchlist" && <WatchlistView />}
+        {tab === "upcoming" && (
+          <UpcomingView tmdbConfigured={!!info?.configured?.tmdb} />
+        )}
         {tab === "logs" && <LogsView />}
         {tab === "settings" && <SettingsView />}
       </main>

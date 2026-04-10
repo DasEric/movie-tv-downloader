@@ -34,8 +34,11 @@ You open the Web-UI → search for a show or movie → click → pick episodes
 
 6. **Fetches subtitles** (Subliminal, DE/EN by default — optional)
 7. **Notifies** you via Discord and/or Telegram webhook (optional)
-8. **Pre-schedules** movies for automatic download on release date
-   (requires a free TMDB API key)
+8. **Pre-schedules** movies for automatic download on release date via
+   the **Upcoming** tab (requires a free TMDB API key)
+9. **Auto-queues new episodes** of an ongoing season in your chosen
+   language via the **Watchlist** tab (pure site-based, no TMDB
+   needed)
 
 Everything happens inside **one** container — no Redis, no Celery, no
 FlareSolverr, no headless browser. FastAPI hosts both the REST API and
@@ -47,21 +50,31 @@ real Chrome TLS fingerprint; `yt-dlp` handles the actual download;
 
 ## Features at a glance
 
-- 🎬 Three sources in one UI: `s.to`, `aniworld.to`, `megakino`
+- 🎬 Three sources in one UI: `s.to` (series), `aniworld.to` (anime), `megakino` (movies, German only)
 - 🔁 Hoster fallback chain (VOE → Vidmoly → Vidoza → Doodstream)
 - 🎞 Always outputs **MP4** (H.264/AAC) — no `.ts` or `.mkv` leftovers
 - 📂 Plex-conformant paths: `Title (Year).mp4` / `Show/Season XX/Show_SXXEYY.mp4`
 - 📺 Posters pulled directly from the source HTML (no TMDB required)
 - 🗂 Full queue management — pause/resume/retry/reorder/delete/concurrency
+- ⏹ **Bulk queue controls** — pause-all / resume-all / stop-all
+- 🔔 **Season Watchlist** — mark a season as "watch for new episodes" in a
+  specific language; new episodes are auto-queued the moment the
+  language-specific version goes live on the site
+- 🎯 **Upcoming tab** — browse TMDB's upcoming movies/shows, click "Watch"
+  on an unreleased title and the scheduler pulls it the second it hits
+  megakino / s.to / aniworld in your chosen language
+- 🌐 **Per-item language picker** — `GerDub` / `GerSub` / `EngDub` / `EngSub`
+  (per queue item, independent of the UI language)
 - 📡 Live updates via WebSocket (progress, speed, ETA, hoster, logs)
-- 🌐 i18n — German & English, browser auto-detect + manual switcher
+- 🌐 i18n — German & English UI, browser auto-detect + manual switcher
 - 🌙 Dark/Light mode toggle
 - 🔔 Discord & Telegram webhook notifications
 - 📝 Auto-subtitle download via Subliminal (optional)
-- 🎯 TMDB integration + "download when released" scheduler (optional)
 - 🔀 Dynamic Megakino domain resolution via community domain tracker
 - 🛡 Cloudflare bypass without a headless browser (`curl_cffi` Chrome impersonation)
 - 🌀 Optional SOCKS5 / HTTP proxy support
+- ⏹ **Real download cancellation** — hitting Delete on an in-flight item
+  actually stops yt-dlp mid-fragment, not just the coroutine
 
 ---
 
@@ -259,27 +272,35 @@ anyway — but **strongly** recommended for release-date metadata and the
 ## How the pipeline works
 
 ```
-┌──────────────── Docker container ────────────────┐
-│                                                   │
-│   FastAPI  (uvicorn, port 3000)                   │
-│   ├── /api/*          REST API                    │
-│   ├── /api/ws/*       WebSocket (progress + logs) │
-│   └── /               Built React frontend        │
-│                                                   │
-│   QueueManager (asyncio + SQLite persistence)     │
-│   └── Worker task per item:                       │
-│       1. Scraper (s.to / aniworld / megakino)     │
-│       2. Hoster resolver (VOE / Vidmoly / …)      │
-│       3. yt-dlp  → /tmp/h0melab/<uuid>/           │
-│       4. ffmpeg  → H.264/AAC MP4                  │
-│       5. Move    → /movies or /tv with naming     │
-│       6. Subliminal (DE/EN subs)                  │
-│       7. Discord/Telegram notify                  │
-│                                                   │
-│   APScheduler — TMDB release checks               │
-│   curl_cffi   — Chrome TLS fingerprint bypass     │
-│                                                   │
-└───────────────────────────────────────────────────┘
+┌───────────────────── Docker container ─────────────────────┐
+│                                                             │
+│   FastAPI  (uvicorn, port 3000)                             │
+│   ├── /api/queue       Queue CRUD + bulk pause/resume/stop  │
+│   ├── /api/watchlist   Season Watchlist CRUD                │
+│   ├── /api/upcoming    TMDB upcoming + "watch for release"  │
+│   ├── /api/ws/*        WebSocket (progress + logs)          │
+│   └── /                Built React frontend (6 tabs)        │
+│                                                             │
+│   QueueManager (asyncio + SQLite persistence)               │
+│   └── Worker task per queue item:                           │
+│       1. Scraper (s.to / aniworld / megakino)               │
+│       2. Hoster resolver (VOE / Vidmoly / Vidoza / Dood)    │
+│       3. yt-dlp → /tmp/h0melab/<uuid>/                      │
+│          (threading.Event for real mid-download cancel)     │
+│       4. ffmpeg → H.264/AAC MP4                             │
+│       5. Move → /movies or /tv with Plex naming             │
+│       6. Subliminal (DE/EN subs)                            │
+│       7. Discord/Telegram notify                            │
+│                                                             │
+│   APScheduler (runtime-reconfigurable interval)             │
+│   ├── Upcoming  → search megakino / s.to / aniworld for     │
+│   │               unreleased titles                         │
+│   └── Watchlist → per-episode language probe                │
+│                   (spawns queue items when lang appears)    │
+│                                                             │
+│   curl_cffi — Chrome TLS fingerprint, Cloudflare bypass     │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 Why one container works:
@@ -295,10 +316,13 @@ Why one container works:
 
 ## Using the UI
 
-### Search
+The web interface has six tabs: **Queue**, **Add**, **Watchlist**,
+**Upcoming**, **Logs**, **Settings**.
 
-Type the exact show/movie title **or paste a URL** from the source site
-(e.g. `https://s.to/serie/stream/the-rookie`). Both work.
+### Add tab — manual download
+
+Pick a source → type the title **or paste a URL** from the source site
+(e.g. `https://s.to/serie/stream/the-rookie`) → press **Search**.
 
 You'll see a grid of result cards with posters. Click one:
 
@@ -306,30 +330,139 @@ You'll see a grid of result cards with posters. Click one:
   card → click it → it lands in the queue
 - **For a series** (s.to / aniworld) → a "Selected show" banner opens
   below with the poster and title → pick a season → pick episodes →
-  **Add selected** (or **Add whole season**)
+  **Add selected** / **Add whole season** / **Auto-download new episodes**
+  (the last one puts the season on the Watchlist, see below)
 
-### Queue
+### Language handling
+
+The **UI language** (top-right switcher) only affects labels and text in
+the interface. The **content language** (what actually gets downloaded)
+is picked **per queue item** via the "Sprachversion / Language track"
+dropdown in the Add tab. Choices:
+
+| Option | What it downloads |
+|---|---|
+| `GerDub` (German) | German audio track (Hoster filter: "Deutsch") |
+| `GerSub` (German subs) | Japanese/English audio + German subs |
+| `EngDub` (English) | English audio track |
+| `EngSub` (English subs) | Japanese audio + English subs |
+
+Megakino is German-only — the language dropdown is disabled when you
+select it as source. s.to and aniworld.to both support all four
+combinations; the scraper filters the hoster list by the HTML
+`data-language-label` / `data-lang-key` attribute before trying anything.
+
+### Queue tab
 
 Each queue item shows:
 - Title + source badge + language/quality tags
 - Current status (queued / scraping / downloading / processing / done)
 - Progress bar with percentage, speed (`10.12 MiB/s`), ETA (`1:23`)
 - Current hoster being tried
-- Actions: pause / resume / retry (for failed items) / delete
+- Per-item actions: **pause** / **resume** / **retry** (for failed items) / **delete**
 
-Clear completed items via the "Clear completed" button.
+Above the list, three **bulk controls**:
+
+- **⏸ Pause all** — pauses every running/queued item. In-flight downloads
+  are properly aborted at the next fragment boundary (not just the
+  coroutine — yt-dlp actually stops writing bytes).
+- **▶ Resume all** — flips every paused item back to queued.
+- **⏹ Stop all** — same as pause-all but with a confirm dialog. Items
+  stay in the `paused` state so you can resume later.
+
+**Delete behaviour** — if you hit Delete on an item that's currently
+downloading, yt-dlp is signalled to abort at the next fragment boundary
+and the scratch directory is cleaned up. No wasted bandwidth on a
+download you don't want.
+
+### Watchlist tab — auto-download new episodes of an ongoing season
+
+Use case: *"I want every new episode of The Rookie Season 8 in German,
+as soon as it's released on s.to."*
+
+How to add a watch:
+
+1. Go to **Add** → search the show → pick a season → below the episode
+   grid there's a **🔔 Auto-download new episodes** box
+2. Pick a duration — **7 days** / **30 days** / **90 days** / **forever**
+3. Click — you're done. The watch is now active.
+
+What the scheduler does on every tick:
+
+1. `list_episodes(slug, season)` on the source site
+2. For each episode that's not yet in the watch's `enqueued_episodes` set:
+   - Hits the episode page
+   - Checks whether the **requested language** is actually listed as a
+     hoster option (via `data-language-label="Deutsch"` or
+     `data-lang-key="1"` matching)
+   - If **yes** → spawns an `EPISODE` queue item and marks it as enqueued
+     → the worker downloads it
+   - If **no** → leaves it for the next tick (the German dub might only
+     come out 3 days after the English original)
+3. If `expires_at` is in the past → delete the watch
+
+Click **Check now** on any watchlist entry to trigger a probe immediately
+instead of waiting for the next scheduled tick.
+
+### Upcoming tab — watch for releases that don't exist anywhere yet
+
+Use case: *"Avatar: The Way of Water 2 has a release date of Dec 2027,
+and I want to download it in English the moment it hits megakino."*
+
+Requires a **TMDB API key** (if you haven't set one yet the tab shows a
+one-click link to the Settings tab).
+
+The tab has two sections:
+
+1. **Your watchlist** — items you've marked as "watch for release",
+   showing the poster, release date (if known), source, language, and
+   last-check message.
+2. **TMDB search & browse** — either browse TMDB's curated "upcoming
+   movies" / "upcoming TV" lists, or search for a specific title by name.
+   Click the **+ Watch** button on any result to add it.
+
+What the scheduler does on every tick for each upcoming item:
+
+- **Movie**: searches megakino for the title. If found → fills in the
+  URL on the queue item, flips status to `QUEUED`, and the worker
+  downloads it. If not found → updates a `last checked` timestamp.
+- **TV show**: searches s.to / aniworld for the title, lists the
+  requested season's episodes, and **for each episode checks if the
+  user's chosen language is actually available**. Episodes that are
+  already available in the right language get spawned as queue items;
+  episodes that aren't yet in the right language get moved to a
+  **Season Watchlist** entry so the per-episode language probing keeps
+  going on subsequent ticks.
+
+### Check interval
+
+Both the Watchlist and Upcoming tabs are driven by the same scheduler.
+The interval is set in **Settings → Release check (minutes)** — default
+`60`. Change it at runtime (no container restart needed) — the scheduler
+re-reads the setting on every tick and reschedules its own job if the
+value changed.
+
+Set it to `30` for "twice an hour", `120` for "every two hours", `360`
+for "every six hours", etc. There's no upper or lower limit other than
+"don't spam the source sites" — `30` is a reasonable floor.
 
 ### Live logs
 
 The **Logs** tab streams everything happening in the backend in real
-time, with level filtering. Useful for debugging scraper failures or
-hoster issues.
+time, with level filtering. Useful for debugging scraper failures,
+hoster issues, or seeing exactly what the scheduler is doing
+("checked 2026-04-11 14:30 — no new episodes in de" etc.).
 
 ### Settings
 
 Everything the env vars set is also editable at runtime from the
 Settings tab. API keys are stored server-side and never sent back to
-the UI — you only see a "configured" badge next to the field.
+the UI — you only see a "configured" badge next to the field. Relevant
+settings for the new features:
+
+- **Release check (minutes)** — drives both Watchlist and Upcoming
+- **TMDB API key** — required for the Upcoming tab
+- **Default language** — pre-fills the language dropdown in the Add tab
 
 ---
 
@@ -401,10 +534,30 @@ user in your compose file:
 user: "1000:1000"     # replace with `id plex` on your host
 ```
 
+### The Upcoming tab says "TMDB API key required"
+The Upcoming tab hits `/api/upcoming/tmdb/movies` which needs the key.
+Set it in the env vars or via Settings → API keys. The Watchlist tab
+does **not** need a TMDB key because it searches the source sites
+directly.
+
+### My season watch never queues new episodes even though the show has them
+Two things to check:
+
+1. Is the **language** you chose actually available for the newer
+   episodes? Watchlist is strict — if you picked `GerDub` but the German
+   dub for E07 hasn't been released yet (only English), the scheduler
+   correctly leaves it waiting. Hit **Check now** to confirm; the
+   `last_message` will tell you something like *"3 episodes on site but
+   none in de yet"*.
+2. Has the **release check interval** actually fired yet? Default is
+   60 minutes. Change it in Settings → Release check, or hit the
+   **Check now** button on the watch entry to probe immediately.
+
 ### The scheduler doesn't actually schedule anything
-The "download when released" feature needs a TMDB API key. Set it in
-the env vars or via the Settings tab. Items in `waiting_release` state
-are checked hourly.
+Check the **Release check (minutes)** setting. If it's empty or 0, no
+job is scheduled. Default is 60. Also verify the scheduler actually
+started — look for `scheduler started (release check every 60m, tz=…)`
+in the Logs tab.
 
 ### High disk use in `/tmp/h0melab`
 Normally the scratch dir is auto-cleaned after each successful download.

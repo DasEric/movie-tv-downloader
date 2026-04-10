@@ -74,3 +74,50 @@ class AppSetting(SQLModel, table=True):
 
     key: str = Field(primary_key=True)
     value: str
+
+
+class SeasonWatch(SQLModel, table=True):
+    """
+    A "watch this season for new episodes" entry.
+
+    Unlike the Upcoming tab (which waits for a show/movie to appear at all),
+    a SeasonWatch tracks an ongoing season where episodes trickle in over
+    time — typically with a language delay (the German dub for E07 comes
+    out 2 weeks after the English original).
+
+    The scheduler walks every SeasonWatch row on every tick:
+      1. list_episodes(slug, season) on the source site
+      2. For each episode number NOT yet in `enqueued_episodes`:
+         a. Check if the requested `language` is actually available for that
+            specific episode (via episode_has_language()).
+         b. If yes → spawn an EPISODE QueueItem + add to enqueued_episodes.
+         c. If no → leave for the next tick (language may still arrive).
+      3. If `expires_at` is in the past, delete the row.
+    """
+
+    __tablename__ = "season_watches"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    source: ItemSource       # only STO / ANIWORLD (megakino has no seasons)
+    slug: str                # show slug on the source site
+    title: str
+    season: int
+    language: str = "de"
+    quality: str = "1080p"
+    poster: Optional[str] = None
+    expires_at: Optional[datetime] = None   # None = forever
+    # Comma-separated list of episode numbers that have already been
+    # spawned into the queue. Stored as a string because SQLite JSON
+    # columns are fiddly and this list is always small (< 100 entries).
+    enqueued_episodes: str = ""
+    last_checked: Optional[datetime] = None
+    last_message: Optional[str] = None
+    created_at: datetime = Field(default_factory=utcnow)
+
+    def enqueued_set(self) -> set[int]:
+        return {int(x) for x in self.enqueued_episodes.split(",") if x.strip().isdigit()}
+
+    def mark_enqueued(self, episode: int) -> None:
+        cur = self.enqueued_set()
+        cur.add(episode)
+        self.enqueued_episodes = ",".join(str(e) for e in sorted(cur))

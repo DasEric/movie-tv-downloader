@@ -119,10 +119,27 @@ class QueueManager:
         events.publish("queue.updated", item.model_dump(mode="json"))
         return item
 
-    async def delete(self, item_id: int) -> bool:
+    def _abort_running(self, item_id: int) -> None:
+        """
+        Signal the downloader thread to stop AND cancel the asyncio task.
+
+        Order matters: we flip the threading.Event FIRST so the executor
+        thread sees it at its next progress-hook checkpoint and actually
+        stops yt-dlp. task.cancel() alone is not enough because Python
+        can't cancel threads from outside — the yt-dlp thread would keep
+        running and silently waste bandwidth.
+        """
+        # Local import to avoid circular dependency (worker imports
+        # queue_manager for state updates).
+        from app.worker import signal_cancel
+
+        signal_cancel(item_id)
         task = self._running.pop(item_id, None)
         if task:
             task.cancel()
+
+    async def delete(self, item_id: int) -> bool:
+        self._abort_running(item_id)
         async with session_scope() as s:
             item = await s.get(QueueItem, item_id)
             if not item:
@@ -132,14 +149,71 @@ class QueueManager:
         return True
 
     async def pause(self, item_id: int) -> None:
-        task = self._running.pop(item_id, None)
-        if task:
-            task.cancel()
+        self._abort_running(item_id)
         await self.update(item_id, status=ItemStatus.PAUSED, progress=0.0)
 
     async def resume(self, item_id: int) -> None:
         await self.update(item_id, status=ItemStatus.QUEUED, message=None)
         self._wake.set()
+
+    # ---- bulk operations ----
+
+    async def pause_all(self) -> int:
+        """
+        Pause every item that is currently queued or running. In-flight
+        downloads are properly aborted (the worker gets CancelledError).
+        """
+        async with session_scope() as s:
+            items = (
+                await s.execute(
+                    select(QueueItem).where(
+                        QueueItem.status.in_(
+                            [
+                                ItemStatus.QUEUED,
+                                ItemStatus.SCRAPING,
+                                ItemStatus.DOWNLOADING,
+                                ItemStatus.PROCESSING,
+                            ]
+                        )
+                    )
+                )
+            ).scalars().all()
+        count = 0
+        for it in items:
+            if it.id is None:
+                continue
+            self._abort_running(it.id)
+            await self.update(
+                it.id, status=ItemStatus.PAUSED, progress=0.0, message="paused"
+            )
+            count += 1
+        log.info("pause_all: paused %d items", count)
+        return count
+
+    async def resume_all(self) -> int:
+        """Flip every paused item back to queued."""
+        async with session_scope() as s:
+            items = (
+                await s.execute(
+                    select(QueueItem).where(QueueItem.status == ItemStatus.PAUSED)
+                )
+            ).scalars().all()
+        count = 0
+        for it in items:
+            if it.id is None:
+                continue
+            await self.update(it.id, status=ItemStatus.QUEUED, message=None)
+            count += 1
+        self._wake.set()
+        log.info("resume_all: resumed %d items", count)
+        return count
+
+    async def stop_all(self) -> int:
+        """
+        Hard-stop every running download without deleting the items.
+        They are left in PAUSED state so the user can resume later.
+        """
+        return await self.pause_all()
 
     async def reorder(self, order: list[int]) -> None:
         async with session_scope() as s:

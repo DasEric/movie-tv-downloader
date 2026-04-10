@@ -18,6 +18,9 @@ export function QueueView({ items, counts }: Props) {
     );
   }
 
+  const hasActive = counts.running > 0 || counts.waiting > 0;
+  const hasPaused = items.some((i) => i.status === "paused");
+
   return (
     <div className="card">
       <div className="row" style={{ justifyContent: "space-between" }}>
@@ -32,16 +35,41 @@ export function QueueView({ items, counts }: Props) {
         </div>
       </div>
 
-      <div style={{ marginTop: 16 }} className="queue-list">
-        {items
-          .slice()
-          .sort((a, b) => a.order_index - b.order_index || a.id - b.id)
-          .map((it) => (
-            <QueueRow key={it.id} item={it} />
-          ))}
-      </div>
-
-      <div style={{ marginTop: 16, textAlign: "right" }}>
+      {/* Bulk controls */}
+      <div
+        className="row wrap"
+        style={{ marginTop: 14, gap: 8, justifyContent: "flex-start" }}
+      >
+        <button
+          disabled={!hasActive}
+          onClick={async () => {
+            await api.pauseAll();
+          }}
+          title={t("queue.pauseAllHint") as string}
+        >
+          ⏸ {t("queue.pauseAll")}
+        </button>
+        <button
+          disabled={!hasPaused}
+          onClick={async () => {
+            await api.resumeAll();
+          }}
+        >
+          ▶ {t("queue.resumeAll")}
+        </button>
+        <button
+          className="danger"
+          disabled={!hasActive}
+          onClick={async () => {
+            if (confirm(t("queue.confirmStopAll"))) {
+              await api.stopAll();
+            }
+          }}
+          title={t("queue.stopAllHint") as string}
+        >
+          ⏹ {t("queue.stopAll")}
+        </button>
+        <div style={{ flex: 1 }} />
         <button
           className="danger"
           onClick={async () => {
@@ -50,6 +78,15 @@ export function QueueView({ items, counts }: Props) {
         >
           {t("common.clearCompleted")}
         </button>
+      </div>
+
+      <div style={{ marginTop: 16 }} className="queue-list">
+        {items
+          .slice()
+          .sort((a, b) => a.order_index - b.order_index || a.id - b.id)
+          .map((it) => (
+            <QueueRow key={it.id} item={it} />
+          ))}
       </div>
     </div>
   );

@@ -6,6 +6,8 @@
   "nav": {
     "queue": "Queue",
     "add": "Add",
+    "watchlist": "Watchlist",
+    "upcoming": "Upcoming",
     "logs": "Logs",
     "settings": "Settings"
   },
@@ -58,7 +60,16 @@
     "addMovie": "Add movie",
     "language": "Language track",
     "quality": "Quality",
-    "noResults": "No matches"
+    "noResults": "No matches",
+    "languageHint": "Pick the language the video will be downloaded in. The UI language (top right) is independent.",
+    "languageLockedHint": "Megakino only hosts German movies — language picker is disabled.",
+    "watchSeasonHeading": "Auto-download new episodes",
+    "watchSeasonHint": "Puts this season on a watchlist. When a new episode becomes available in the selected language, it's automatically added to the queue.",
+    "watchFor7d": "Watch for 7 days",
+    "watchFor30d": "Watch for 30 days",
+    "watchFor90d": "Watch for 90 days",
+    "watchForever": "Watch indefinitely",
+    "addedToWatchlist": "Added to watchlist ✓"
   },
   "queue": {
     "heading": "Download queue",
@@ -80,7 +91,44 @@
     "speed": "Speed",
     "eta": "ETA",
     "output": "Saved to",
-    "confirmDelete": "Really delete this item?"
+    "confirmDelete": "Really delete this item?",
+    "pauseAll": "Pause all",
+    "pauseAllHint": "Pauses every running and queued download",
+    "resumeAll": "Resume all",
+    "stopAll": "Stop all",
+    "stopAllHint": "Aborts every running download immediately and marks them as paused",
+    "confirmStopAll": "Really stop all running downloads?"
+  },
+  "watchlist": {
+    "heading": "Season watchlist",
+    "explanation": "The watchlist periodically checks whether new episodes of a season are available in your chosen language. When they are, they're automatically added to the download queue.",
+    "watching": "{{count}} active",
+    "empty": "No active watches.",
+    "emptyHint": "Go to Add → search a series → pick a season → then click \"Auto-download new episodes\".",
+    "enqueuedCount": "{{count}} episodes already fetched",
+    "expires": "Expires",
+    "checkNow": "Check now",
+    "checkedNow": "Checked ✓",
+    "confirmRemove": "Really remove this watch?",
+    "intervalNote": "Checked periodically (interval under Settings → Release check)."
+  },
+  "upcoming": {
+    "heading": "Upcoming watchlist",
+    "addHeading": "Add a new upcoming item",
+    "watching": "{{count}} watching",
+    "emptyWatchlist": "No upcoming items. Search TMDB below for a title you want to watch for.",
+    "needsTmdbKey": "A TMDB API key is required for the upcoming tab.",
+    "needsTmdbKeyHint": "Grab a free key at themoviedb.org/signup, then paste it under Settings → API keys.",
+    "kind": "Kind",
+    "searchTmdb": "Search TMDB (optional)",
+    "searchPlaceholder": "Leave empty to show TMDB's upcoming list",
+    "showUpcoming": "Show TMDB upcoming",
+    "seasonToWatch": "Season to watch for",
+    "watch": "Watch",
+    "added": "Added to watchlist ✓",
+    "confirmRemove": "Really remove this item?",
+    "intervalNote": "Checked periodically (interval under Settings → Release check).",
+    "movieLangHint": "Megakino only hosts German movies."
   },
   "logs": {
     "heading": "Live log",

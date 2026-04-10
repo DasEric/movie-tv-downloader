@@ -2,10 +2,15 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, ItemSource, SearchResult } from "../api";
 
-const SOURCES: { key: ItemSource; label: string; kind: "series" | "movie" }[] = [
+const SOURCES: {
+  key: ItemSource;
+  label: string;
+  kind: "series" | "movie";
+  languageLocked?: boolean;
+}[] = [
   { key: "s.to", label: "s.to", kind: "series" },
   { key: "aniworld", label: "AniWorld", kind: "series" },
-  { key: "megakino", label: "Megakino", kind: "movie" },
+  { key: "megakino", label: "Megakino (german only)", kind: "movie", languageLocked: true },
 ];
 
 export function AddView() {
@@ -23,7 +28,9 @@ export function AddView() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  const kind = SOURCES.find((s) => s.key === source)?.kind ?? "series";
+  const currentSource = SOURCES.find((s) => s.key === source);
+  const kind = currentSource?.kind ?? "series";
+  const languageLocked = currentSource?.languageLocked ?? false;
 
   useEffect(() => {
     setSelected(null);
@@ -32,7 +39,12 @@ export function AddView() {
     setSeason(null);
     setEpisodes([]);
     setPicked(new Set());
-  }, [source]);
+    // megakino only has German content — force the language field back
+    // to "de" so the queue item has a consistent value.
+    if (languageLocked) {
+      setLanguage("de");
+    }
+  }, [source, languageLocked]);
 
   const doSearch = async () => {
     if (!query.trim()) return;
@@ -161,6 +173,29 @@ export function AddView() {
     }
   };
 
+  const addToWatchlist = async (expiresInDays: number | null) => {
+    if (!selected || !season || !selected.slug) return;
+    if (source === "megakino") return; // no seasons on megakino
+    setBusy(true);
+    try {
+      await api.addWatch({
+        source,
+        slug: selected.slug,
+        title: selected.title,
+        season,
+        language,
+        quality,
+        poster: selected.poster,
+        expires_in_days: expiresInDays,
+      });
+      setMsg(t("add.addedToWatchlist") as string);
+    } catch (e: any) {
+      setMsg(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="card">
       <h2>{t("add.heading")}</h2>
@@ -178,12 +213,26 @@ export function AddView() {
         </div>
         <div>
           <label>{t("add.language")}</label>
-          <select value={language} onChange={(e) => setLanguage(e.target.value)}>
+          <select
+            value={language}
+            onChange={(e) => setLanguage(e.target.value)}
+            disabled={languageLocked}
+            title={
+              languageLocked
+                ? (t("add.languageLockedHint") as string)
+                : (t("add.languageHint") as string)
+            }
+          >
             <option value="de">{t("common.gerDub")}</option>
             <option value="de-sub">{t("common.gerSub")}</option>
             <option value="en">{t("common.engDub")}</option>
             <option value="en-sub">{t("common.engSub")}</option>
           </select>
+          <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4 }}>
+            {languageLocked
+              ? t("add.languageLockedHint")
+              : t("add.languageHint")}
+          </div>
         </div>
         <div>
           <label>{t("add.quality")}</label>
@@ -330,6 +379,55 @@ export function AddView() {
                 >
                   {t("add.addSelected")} ({picked.size})
                 </button>
+              </div>
+
+              {/* Season watchlist — auto-download new episodes as they appear */}
+              <div
+                style={{
+                  marginTop: 20,
+                  padding: 14,
+                  border: "1px dashed var(--border)",
+                  borderRadius: 8,
+                }}
+              >
+                <h4 style={{ margin: "0 0 6px" }}>
+                  🔔 {t("add.watchSeasonHeading")}
+                </h4>
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "var(--text-dim)",
+                    marginBottom: 10,
+                  }}
+                >
+                  {t("add.watchSeasonHint")}
+                </div>
+                <div className="row wrap" style={{ gap: 8 }}>
+                  <button
+                    onClick={() => addToWatchlist(7)}
+                    disabled={busy}
+                  >
+                    {t("add.watchFor7d")}
+                  </button>
+                  <button
+                    onClick={() => addToWatchlist(30)}
+                    disabled={busy}
+                  >
+                    {t("add.watchFor30d")}
+                  </button>
+                  <button
+                    onClick={() => addToWatchlist(90)}
+                    disabled={busy}
+                  >
+                    {t("add.watchFor90d")}
+                  </button>
+                  <button
+                    onClick={() => addToWatchlist(null)}
+                    disabled={busy}
+                  >
+                    {t("add.watchForever")}
+                  </button>
+                </div>
               </div>
             </>
           )}

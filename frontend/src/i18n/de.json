@@ -6,6 +6,8 @@
   "nav": {
     "queue": "Warteschlange",
     "add": "Hinzufügen",
+    "watchlist": "Watchlist",
+    "upcoming": "Geplant",
     "logs": "Logs",
     "settings": "Einstellungen"
   },
@@ -58,7 +60,16 @@
     "addMovie": "Film hinzufügen",
     "language": "Sprachversion",
     "quality": "Qualität",
-    "noResults": "Keine Treffer"
+    "noResults": "Keine Treffer",
+    "languageHint": "Wähle, in welcher Sprache das Video heruntergeladen wird. Die UI-Sprache (oben rechts) ist davon unabhängig.",
+    "languageLockedHint": "Megakino bietet nur deutsche Filme an — Sprachauswahl ist daher deaktiviert.",
+    "watchSeasonHeading": "Neue Episoden automatisch herunterladen",
+    "watchSeasonHint": "Setzt diese Staffel auf die Watchlist. Sobald eine neue Episode in der gewählten Sprache veröffentlicht wird, landet sie automatisch in der Warteschlange.",
+    "watchFor7d": "7 Tage beobachten",
+    "watchFor30d": "30 Tage beobachten",
+    "watchFor90d": "90 Tage beobachten",
+    "watchForever": "Dauerhaft beobachten",
+    "addedToWatchlist": "Zur Watchlist hinzugefügt ✓"
   },
   "queue": {
     "heading": "Download-Warteschlange",
@@ -80,7 +91,44 @@
     "speed": "Tempo",
     "eta": "Rest",
     "output": "Gespeichert unter",
-    "confirmDelete": "Eintrag wirklich löschen?"
+    "confirmDelete": "Eintrag wirklich löschen?",
+    "pauseAll": "Alle pausieren",
+    "pauseAllHint": "Pausiert alle laufenden und wartenden Downloads",
+    "resumeAll": "Alle fortsetzen",
+    "stopAll": "Alles stoppen",
+    "stopAllHint": "Bricht alle laufenden Downloads sofort ab und pausiert die Einträge",
+    "confirmStopAll": "Wirklich alle laufenden Downloads stoppen?"
+  },
+  "watchlist": {
+    "heading": "Staffel-Watchlist",
+    "explanation": "Die Watchlist prüft regelmäßig ob neue Episoden einer Staffel in deiner gewünschten Sprache verfügbar sind. Sobald ja, werden sie automatisch zur Warteschlange hinzugefügt und heruntergeladen.",
+    "watching": "{{count}} aktiv",
+    "empty": "Keine aktive Watchlist.",
+    "emptyHint": "Gehe zu Hinzufügen → suche eine Serie → wähle eine Staffel aus → klicke dann auf „Neue Episoden automatisch herunterladen\".",
+    "enqueuedCount": "{{count}} Episoden bereits geholt",
+    "expires": "Läuft aus",
+    "checkNow": "Jetzt prüfen",
+    "checkedNow": "Geprüft ✓",
+    "confirmRemove": "Watchlist-Eintrag wirklich entfernen?",
+    "intervalNote": "Wird regelmäßig geprüft (Intervall unter Einstellungen → Release-Prüfung)."
+  },
+  "upcoming": {
+    "heading": "Geplante Downloads",
+    "addHeading": "Neuen geplanten Download hinzufügen",
+    "watching": "{{count}} beobachtet",
+    "emptyWatchlist": "Keine geplanten Downloads. Suche unten bei TMDB nach kommenden Titeln.",
+    "needsTmdbKey": "Für geplante Downloads wird ein TMDB API-Schlüssel benötigt.",
+    "needsTmdbKeyHint": "Kostenlosen Key unter themoviedb.org/signup holen, dann unter Einstellungen → API-Schlüssel eintragen.",
+    "kind": "Art",
+    "searchTmdb": "TMDB durchsuchen (optional)",
+    "searchPlaceholder": "Leer lassen zeigt die TMDB-Upcoming-Liste",
+    "showUpcoming": "TMDB-Upcoming zeigen",
+    "seasonToWatch": "Staffel, auf die gewartet werden soll",
+    "watch": "Beobachten",
+    "added": "Zur Liste hinzugefügt ✓",
+    "confirmRemove": "Eintrag wirklich entfernen?",
+    "intervalNote": "Wird regelmäßig geprüft (Intervall unter Einstellungen → Release-Prüfung).",
+    "movieLangHint": "Megakino bietet nur deutsche Filme an."
   },
   "logs": {
     "heading": "Live-Log",

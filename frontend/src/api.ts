@@ -90,6 +90,18 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ order }),
     }).then(j),
+  pauseAll: () =>
+    fetch("/api/queue/pause-all", { method: "POST" }).then((r) =>
+      j<{ paused: number }>(r)
+    ),
+  resumeAll: () =>
+    fetch("/api/queue/resume-all", { method: "POST" }).then((r) =>
+      j<{ resumed: number }>(r)
+    ),
+  stopAll: () =>
+    fetch("/api/queue/stop-all", { method: "POST" }).then((r) =>
+      j<{ stopped: number }>(r)
+    ),
   clearCompleted: () =>
     fetch("/api/queue", { method: "DELETE" }).then((r) => j<{ removed: number }>(r)),
 
@@ -123,6 +135,40 @@ export const api = {
     }).then((r) => j<any>(r)),
 
   getLogs: () => fetch("/api/logs?limit=500").then((r) => j<any[]>(r)),
+
+  // ---- watchlist (season watch) ----
+  listWatches: () => fetch("/api/watchlist").then((r) => j<any[]>(r)),
+  addWatch: (payload: any) =>
+    fetch("/api/watchlist", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    }).then((r) => j<any>(r)),
+  removeWatch: (id: number) =>
+    fetch(`/api/watchlist/${id}`, { method: "DELETE" }).then(j),
+  checkWatchNow: (id: number) =>
+    fetch(`/api/watchlist/${id}/check-now`, { method: "POST" }).then((r) =>
+      j<any>(r)
+    ),
+
+  // ---- upcoming (watch-for-release) ----
+  listUpcoming: () => fetch("/api/upcoming").then((r) => j<QueueItem[]>(r)),
+  addUpcoming: (payload: any) =>
+    fetch("/api/upcoming", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    }).then((r) => j<QueueItem>(r)),
+  removeUpcoming: (id: number) =>
+    fetch(`/api/upcoming/${id}`, { method: "DELETE" }).then(j),
+  tmdbUpcomingMovies: () =>
+    fetch("/api/upcoming/tmdb/movies").then((r) => j<any[]>(r)),
+  tmdbUpcomingTv: () =>
+    fetch("/api/upcoming/tmdb/tv").then((r) => j<any[]>(r)),
+  tmdbSearch: (q: string, kind: "movie" | "tv") =>
+    fetch(
+      `/api/upcoming/tmdb/search?q=${encodeURIComponent(q)}&kind=${kind}`
+    ).then((r) => j<any[]>(r)),
 };
 
 // Auto-reconnecting WebSocket wrapper. Returns a "handle" with a close()

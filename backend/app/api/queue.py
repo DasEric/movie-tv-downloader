@@ -131,6 +131,24 @@ async def reorder(req: ReorderRequest):
     return {"ok": True}
 
 
+@router.post("/pause-all")
+async def pause_all():
+    count = await queue_manager.pause_all()
+    return {"paused": count}
+
+
+@router.post("/resume-all")
+async def resume_all():
+    count = await queue_manager.resume_all()
+    return {"resumed": count}
+
+
+@router.post("/stop-all")
+async def stop_all():
+    count = await queue_manager.stop_all()
+    return {"stopped": count}
+
+
 @router.delete("")
 async def clear_completed():
     items = await queue_manager.list_items()

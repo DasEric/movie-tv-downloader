@@ -136,6 +136,24 @@ class StoScraper(BaseScraper):
             "seasons": sorted(seasons),
         }
 
+    async def episode_has_language(
+        self, slug: str, season: int, episode: int, language: str
+    ) -> bool:
+        """
+        Return True if the episode page lists at least one hoster for the
+        requested language. Used by the SeasonWatch scheduler to avoid
+        spawning queue items for episodes that aren't in the user's
+        language yet.
+        """
+        url = f"{BASE}/serie/stream/{slug}/staffel-{season}/episode-{episode}"
+        try:
+            html = await get(url)
+        except Exception:
+            return False
+        label = LANG_LABEL.get(language, "Deutsch")
+        hosters = self._parse_providers(html, label)
+        return bool(hosters)
+
     async def get_stream(self, ep: EpisodeRef) -> StreamCandidate:
         url = f"{BASE}/serie/stream/{ep.slug}/staffel-{ep.season}/episode-{ep.episode}"
         html = await get(url)

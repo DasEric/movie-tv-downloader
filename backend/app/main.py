@@ -10,7 +10,15 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import __version__
-from app.api import logs, queue, search, settings as settings_api, ws
+from app.api import (
+    logs,
+    queue,
+    search,
+    settings as settings_api,
+    upcoming,
+    watchlist,
+    ws,
+)
 from app.config import settings
 from app.db import init_db
 from app.logger import setup_logging
@@ -55,6 +63,8 @@ app.add_middleware(
 app.include_router(queue.router)
 app.include_router(search.router)
 app.include_router(settings_api.router)
+app.include_router(upcoming.router)
+app.include_router(watchlist.router)
 app.include_router(logs.router)
 app.include_router(ws.router)
 
