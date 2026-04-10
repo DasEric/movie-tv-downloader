@@ -1,8 +1,19 @@
 # --- web ---
-fastapi==0.115.0
-uvicorn[standard]==0.30.6
+# fastapi 0.115.6+ requires starlette >= 0.40.0 which fixes CVE-2024-47874
+# (DoS via unbounded multipart forms). Anything older is reported as
+# vulnerable by Docker Scout.
+fastapi==0.115.6
+# starlette is pulled in transitively by fastapi, but we pin it explicitly
+# so the CVE scanner can verify the resolved version.
+starlette>=0.40.0,<0.42.0
+uvicorn[standard]==0.32.1
 websockets==13.1
-python-multipart==0.0.12
+# python-multipart 0.0.22 fixes BOTH CVE-2024-53981 AND CVE-2026-24486
+# (the boundary parsing & header limit issues). 0.0.26 is the latest and
+# includes all post-0.0.22 patches.  We don't actually call it directly
+# (no Form/File/UploadFile in our API), it's only here so Scout can
+# verify the resolved version.
+python-multipart==0.0.26
 
 # --- data / db ---
 pydantic==2.9.2

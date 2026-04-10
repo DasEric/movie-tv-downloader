@@ -45,7 +45,13 @@ ENV PYTHONUNBUFFERED=1 \
 #   build-essential / libxml2-dev / libxslt1-dev / libffi-dev
 #            - native build fallback for lxml / curl_cffi / cryptography
 #   ca-certificates - TLS trust store
+#
+# `apt-get upgrade -y` pulls in the latest security patches from Debian
+# (e.g. the openssl 3.5.5-1~deb13u2 fix for CVE-2026-2838[8/9/0] /
+# CVE-2026-31790). Without it, the slim base image lags weeks behind the
+# Debian security advisories and Docker Scout flags it as non-compliant.
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
         ffmpeg \
         curl \
@@ -56,7 +62,8 @@ RUN apt-get update \
         libxml2-dev \
         libxslt1-dev \
         libffi-dev \
-    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* \
     && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime \
     && echo $TZ > /etc/timezone
 
