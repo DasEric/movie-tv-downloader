@@ -10,6 +10,20 @@ Docker Hub:  daseric/movie-tv-downloader
 Default UI:  http://<host>:3000
 ```
 
+## Legal Disclaimer
+
+movie-tv-downloader is a **client-side** tool that enables access to content hosted on third-party websites. It **does not host, upload, store, or distribute any media itself**.
+
+This software is **not intended to promote piracy or copyright infringement**. You are solely responsible for how you use the movie-tv-downloader and for ensuring that your use **complies with applicable laws** and the **terms of service of the websites you access**.
+
+The developer provides this project **"as is"** and is **not responsible for**:
+
+- Third-party content
+- External links
+- The availability, accuracy, legality, or reliability of any third-party service
+
+If you have concerns about specific content, **contact the relevant website owner, administrator, or hosting provider**.
+
 ---
 
 ## What it does
