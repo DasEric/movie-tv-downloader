@@ -110,7 +110,7 @@
     "checkNow": "Jetzt prüfen",
     "checkedNow": "Geprüft ✓",
     "confirmRemove": "Watchlist-Eintrag wirklich entfernen?",
-    "intervalNote": "Wird regelmäßig geprüft (Intervall unter Einstellungen → Release-Prüfung)."
+    "intervalNote": "Wird regelmäßig geprüft. Intervall anpassen unter Einstellungen → Scheduler → Prüf-Intervall."
   },
   "upcoming": {
     "heading": "Geplante Downloads",
@@ -127,7 +127,7 @@
     "watch": "Beobachten",
     "added": "Zur Liste hinzugefügt ✓",
     "confirmRemove": "Eintrag wirklich entfernen?",
-    "intervalNote": "Wird regelmäßig geprüft (Intervall unter Einstellungen → Release-Prüfung).",
+    "intervalNote": "Wird regelmäßig geprüft. Intervall anpassen unter Einstellungen → Scheduler → Prüf-Intervall.",
     "movieLangHint": "Megakino bietet nur deutsche Filme an."
   },
   "logs": {
@@ -153,7 +153,10 @@
     "subtitles": "Untertitel",
     "autoSubtitles": "Untertitel automatisch laden",
     "subtitleLanguages": "Untertitel-Sprachen",
-    "releaseCheck": "Release-Prüfung (Minuten)",
+    "scheduler": "Scheduler (Watchlist & Geplant)",
+    "releaseCheck": "Prüf-Intervall (Minuten)",
+    "releaseCheckHint": "Wie oft der Scheduler nach neuen Episoden (Watchlist) und freigegebenen Titeln (Geplant) sucht. Minimum 5, Maximum 1440. Änderung wirkt beim nächsten Tick — kein Neustart nötig.",
+    "schedulerExplanation": "Steuert Watchlist- und Upcoming-Tab. Kleinerer Wert = schnellere Reaktion auf neue Episoden, aber mehr Traffic zu den Quellseiten. Empfehlung: 30–120.",
     "saved": "Gespeichert ✓",
     "masked": "•••••• (gesetzt)",
     "configured": "konfiguriert",

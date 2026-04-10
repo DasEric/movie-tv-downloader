@@ -110,7 +110,7 @@
     "checkNow": "Check now",
     "checkedNow": "Checked ✓",
     "confirmRemove": "Really remove this watch?",
-    "intervalNote": "Checked periodically (interval under Settings → Release check)."
+    "intervalNote": "Checked periodically. Change the interval under Settings → Scheduler → Check interval."
   },
   "upcoming": {
     "heading": "Upcoming watchlist",
@@ -127,7 +127,7 @@
     "watch": "Watch",
     "added": "Added to watchlist ✓",
     "confirmRemove": "Really remove this item?",
-    "intervalNote": "Checked periodically (interval under Settings → Release check).",
+    "intervalNote": "Checked periodically. Change the interval under Settings → Scheduler → Check interval.",
     "movieLangHint": "Megakino only hosts German movies."
   },
   "logs": {
@@ -153,7 +153,10 @@
     "subtitles": "Subtitles",
     "autoSubtitles": "Auto-fetch subtitles",
     "subtitleLanguages": "Subtitle languages",
-    "releaseCheck": "Release check (minutes)",
+    "scheduler": "Scheduler (Watchlist & Upcoming)",
+    "releaseCheck": "Check interval (minutes)",
+    "releaseCheckHint": "How often the scheduler probes source sites for new episodes (Watchlist) and released titles (Upcoming). Minimum 5, maximum 1440. Changes apply on the next tick — no restart required.",
+    "schedulerExplanation": "Drives the Watchlist and Upcoming tabs. Lower value = faster reaction to new episodes, but more traffic to source sites. Recommended: 30–120.",
     "saved": "Saved ✓",
     "masked": "•••••• (set)",
     "configured": "configured",

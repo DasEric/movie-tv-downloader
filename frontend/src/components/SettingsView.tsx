@@ -214,15 +214,41 @@ export function SettingsView() {
             onChange={(e) => set("telegram_chat_id", e.target.value)}
           />
         </div>
+      </div>
+
+      <h3>{t("settings.scheduler")}</h3>
+      <div className="grid-2">
         <div>
           <label>{t("settings.releaseCheck")}</label>
           <input
             type="number"
             min={5}
             max={1440}
-            value={form.release_check_interval_min}
-            onChange={(e) => set("release_check_interval_min", Number(e.target.value))}
+            value={form.release_check_interval_min ?? 60}
+            onChange={(e) =>
+              set(
+                "release_check_interval_min",
+                Math.max(5, Number(e.target.value) || 60)
+              )
+            }
           />
+          <div
+            style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4 }}
+          >
+            {t("settings.releaseCheckHint")}
+          </div>
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <div
+            style={{
+              fontSize: 12,
+              color: "var(--text-dim)",
+              padding: "10px 0",
+            }}
+          >
+            {t("settings.schedulerExplanation")}
+          </div>
         </div>
       </div>
 
