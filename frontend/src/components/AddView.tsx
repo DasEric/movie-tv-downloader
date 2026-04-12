@@ -35,6 +35,10 @@ export function AddView() {
   const [librarySeasons, setLibrarySeasons] = useState<Record<string, number[]>>({});
   const [movieOnDisk, setMovieOnDisk] = useState(false);
 
+  // Per-result library status (keyed by result URL)
+  // "complete" = fully downloaded, "partial" = some downloaded, undefined = not checked or not found
+  const [resultLibStatus, setResultLibStatus] = useState<Record<string, "complete" | "partial">>({});
+
   // Generation counter: incremented every time a new language check starts.
   // Stale background callbacks compare their snapshot against this and
   // bail out if a newer check has been triggered since.
@@ -64,6 +68,9 @@ export function AddView() {
     setSeason(null);
     setEpisodes([]);
     setPicked(new Set());
+    setResultLibStatus({});
+    setLibrarySeasons({});
+    setMovieOnDisk(false);
     // megakino only has German content — force the language field back
     // to "de" so the queue item has a consistent value.
     if (languageLocked) {
@@ -97,10 +104,31 @@ export function AddView() {
     if (!query.trim()) return;
     setBusy(true);
     setMsg(null);
+    setResultLibStatus({});
     try {
       const r = await api.search(source, query.trim());
       setResults(r);
       if (r.length === 0) setMsg(t("add.noResults"));
+
+      // Check library status for every result in the background
+      for (const res of r) {
+        if (kind === "movie") {
+          api.checkMovie(res.title, res.year).then((lib) => {
+            if (lib.found) {
+              setResultLibStatus((prev) => ({ ...prev, [res.url]: "complete" }));
+            }
+          }).catch(() => {});
+        } else {
+          api.checkShow(res.title).then((lib) => {
+            if (lib.found) {
+              setResultLibStatus((prev) => ({
+                ...prev,
+                [res.url]: lib.total_episodes > 0 ? "partial" : "partial",
+              }));
+            }
+          }).catch(() => {});
+        }
+      }
     } catch (e: any) {
       setMsg(e.message || "error");
     } finally {
@@ -117,8 +145,10 @@ export function AddView() {
     setMovieOnDisk(false);
 
     if (kind === "movie") {
-      // Check if movie is on disk
-      api.checkMovie(r.title, r.year).then((res) => setMovieOnDisk(res.found)).catch(() => {});
+      api.checkMovie(r.title, r.year).then((res) => {
+        setMovieOnDisk(res.found);
+        if (res.found) setResultLibStatus((prev) => ({ ...prev, [r.url]: "complete" }));
+      }).catch(() => {});
       return;
     }
     if (!r.slug) return;
@@ -140,7 +170,17 @@ export function AddView() {
 
       // Check what's already on disk (background, non-blocking)
       const showTitle = details.title || r.title;
-      api.checkShow(showTitle).then((lib) => setLibrarySeasons(lib.seasons)).catch(() => {});
+      api.checkShow(showTitle).then((lib) => {
+        setLibrarySeasons(lib.seasons);
+        if (lib.found) {
+          const libSeasonCount = Object.keys(lib.seasons).length;
+          const allComplete = details.seasons.length > 0 && libSeasonCount >= details.seasons.length;
+          setResultLibStatus((prev) => ({
+            ...prev,
+            [r.url]: allComplete ? "complete" : "partial",
+          }));
+        }
+      }).catch(() => {});
 
       if (details.seasons.length) {
         const firstSeason = details.seasons[0];
@@ -424,14 +464,9 @@ export function AddView() {
                     </div>
                   )}
                   {/* Download status badge */}
-                  {kind === "movie" && selected?.url === r.url && movieOnDisk && (
-                    <span className="download-badge complete" />
+                  {resultLibStatus[r.url] && (
+                    <span className={`download-badge ${resultLibStatus[r.url]}`} />
                   )}
-                  {kind === "series" && selected?.url === r.url && Object.keys(librarySeasons).length > 0 && (() => {
-                    const libSeasonCount = Object.keys(librarySeasons).length;
-                    const allComplete = seasons.length > 0 && libSeasonCount >= seasons.length;
-                    return <span className={`download-badge ${allComplete ? "complete" : "partial"}`} />;
-                  })()}
                 </div>
                 <div className="result-body">
                   <div className="result-title">{r.title}</div>
