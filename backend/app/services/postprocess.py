@@ -24,6 +24,7 @@ TMP_ROOT = settings.tmp_path
 # ---------- naming ----------
 
 _INVALID = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_STAFFEL_RE = re.compile(r'\s*Staffel\s+\d+\s*$', re.IGNORECASE)
 _FALLBACK = "unknown"
 
 
@@ -32,6 +33,13 @@ def _safe_folder(name: str) -> str:
     Falls back to 'unknown' so we never produce an empty path segment."""
     cleaned = _INVALID.sub("", name or "").strip().rstrip(".")
     return cleaned or _FALLBACK
+
+
+def _clean_show_title(name: str) -> str:
+    """Strip trailing 'Staffel X' from show titles.
+    s.to sometimes appends the season to the show name
+    (e.g. 'The Rookie Staffel 1') — we don't want that in folder names."""
+    return _STAFFEL_RE.sub("", name or "").strip() or name
 
 
 def _safe_file_token(name: str) -> str:
@@ -45,8 +53,9 @@ def tv_target(show: str, season: int, episode: int) -> Path:
     """
     /tv/Show Name/Season XX/Show_Name_SXXEYY.mp4
     """
-    folder = TV_ROOT / _safe_folder(show) / f"Season {season:02d}"
-    fname = f"{_safe_file_token(show)}_S{season:02d}E{episode:02d}.mp4"
+    clean = _clean_show_title(show)
+    folder = TV_ROOT / _safe_folder(clean) / f"Season {season:02d}"
+    fname = f"{_safe_file_token(clean)}_S{season:02d}E{episode:02d}.mp4"
     return folder / fname
 
 

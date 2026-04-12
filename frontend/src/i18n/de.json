@@ -69,7 +69,17 @@
     "watchFor30d": "30 Tage beobachten",
     "watchFor90d": "90 Tage beobachten",
     "watchForever": "Dauerhaft beobachten",
-    "addedToWatchlist": "Zur Watchlist hinzugefügt ✓"
+    "addedToWatchlist": "Zur Watchlist hinzugefügt ✓",
+    "availableCount": "{{available}} von {{total}} in {{language}} verfügbar",
+    "notAvailableInLang": "Nicht in dieser Sprache verfügbar",
+    "loadingLanguageInfo": "Prüfe Sprachverfügbarkeit…",
+    "noEpisodesInLang": "Keine Episoden in dieser Sprache verfügbar",
+    "fallbackLang": "Wird als {{lang}} heruntergeladen",
+    "seasonPartial": "{{added}} von {{total}} Episoden hinzugefügt. {{skipped}} Episoden sind noch nicht in {{language}} verfügbar. Soll die Staffel auf die Watchlist, damit fehlende Episoden automatisch heruntergeladen werden sobald sie verfügbar sind?",
+    "seasonNoneAvailable": "Keine der {{total}} Episoden ist aktuell in {{language}} verfügbar. Soll die Staffel auf die Watchlist, damit sie automatisch heruntergeladen werden sobald sie verfügbar sind?",
+    "episodeNotInLang": "{{episode}} ist aktuell nicht in {{language}} verfügbar. Soll die Staffel auf die Watchlist, damit sie automatisch heruntergeladen wird sobald sie verfügbar ist?",
+    "addToWatchlistYes": "Ja, auf Watchlist setzen",
+    "addToWatchlistNo": "Nein, danke"
   },
   "queue": {
     "heading": "Download-Warteschlange",
@@ -85,8 +95,10 @@
       "completed": "Fertig",
       "failed": "Fehlgeschlagen",
       "paused": "Pausiert",
-      "waiting_release": "Wartet auf Release"
+      "waiting_release": "Wartet auf Release",
+      "rate_limited": "Rate-Limit / Captcha"
     },
+    "openInBrowser": "s.to im Browser öffnen",
     "hoster": "Hoster",
     "speed": "Tempo",
     "eta": "Rest",
@@ -97,7 +109,8 @@
     "resumeAll": "Alle fortsetzen",
     "stopAll": "Alles stoppen",
     "stopAllHint": "Bricht alle laufenden Downloads sofort ab und pausiert die Einträge",
-    "confirmStopAll": "Wirklich alle laufenden Downloads stoppen?"
+    "confirmStopAll": "Wirklich alle laufenden Downloads stoppen?",
+    "retryAll": "Alle erneut versuchen"
   },
   "watchlist": {
     "heading": "Staffel-Watchlist",

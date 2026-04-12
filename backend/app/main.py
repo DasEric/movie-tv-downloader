@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import __version__
 from app.api import (
+    library,
     logs,
     queue,
     search,
@@ -60,6 +61,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(library.router)
 app.include_router(queue.router)
 app.include_router(search.router)
 app.include_router(settings_api.router)

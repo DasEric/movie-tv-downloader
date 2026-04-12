@@ -51,6 +51,26 @@ LANG_KEY = {
     "en-sub": "2",
 }
 
+# Human-readable labels for lang keys (used in error messages + UI)
+LANG_LABEL = {
+    "1": "GerDub",
+    "2": "EngSub",
+    "3": "GerSub",
+    "4": "EngDub",
+}
+
+# Fallback chain: if the preferred language isn't available, try the next
+# one in the chain. Typical anime scenario: GerDub rarely exists, but
+# GerSub (Japanese audio + German subs) usually does.
+LANG_FALLBACK: dict[str, list[str]] = {
+    "de":     ["de-sub", "en-sub"],   # GerDub -> GerSub -> EngSub
+    "de-dub": ["de-sub", "en-sub"],
+    "de-sub": ["en-sub"],             # GerSub -> EngSub
+    "en":     ["en-sub"],             # EngDub -> EngSub
+    "en-dub": ["en-sub"],
+    "en-sub": [],                     # no fallback
+}
+
 _LI_RE = re.compile(
     r'<li\s+[^>]*data-lang-key="(?P<key>\d+)"[^>]*>(?P<content>.*?)</li>',
     re.DOTALL,
@@ -140,33 +160,70 @@ class AniworldScraper(BaseScraper):
     async def episode_has_language(
         self, slug: str, season: int, episode: int, language: str
     ) -> bool:
-        """True iff at least one provider entry for the given data-lang-key
-        exists on the episode page. Used by the SeasonWatch scheduler."""
+        """True iff the episode is available in the requested language OR
+        any of its fallbacks (e.g. GerDub -> GerSub -> EngSub)."""
+        resolved = await self.resolve_episode_language(
+            slug, season, episode, language
+        )
+        return resolved is not None
+
+    async def resolve_episode_language(
+        self, slug: str, season: int, episode: int, language: str
+    ) -> str | None:
+        """
+        Return the actual language that will be used for the episode,
+        walking the fallback chain. Returns None if nothing is available.
+
+        Example: language="de" (GerDub) but only GerSub exists
+                 -> returns "de-sub"
+        """
         url = f"{BASE}/anime/stream/{slug}/staffel-{season}/episode-{episode}"
         try:
             html = await get(url)
         except Exception:
-            return False
-        target_key = LANG_KEY.get(language, "1")
-        hosters = self._parse_providers(html, target_key)
-        return bool(hosters)
+            return None
+
+        # Try requested language first, then each fallback
+        candidates = [language] + LANG_FALLBACK.get(language, [])
+        for lang in candidates:
+            key = LANG_KEY.get(lang, "1")
+            if self._parse_providers(html, key):
+                return lang
+        return None
 
     async def get_stream(self, ep: EpisodeRef) -> StreamCandidate:
         url = f"{BASE}/anime/stream/{ep.slug}/staffel-{ep.season}/episode-{ep.episode}"
         html = await get(url)
 
-        target_key = LANG_KEY.get(ep.language, "1")
-        hosters = self._parse_providers(html, target_key)
-        if not hosters:
-            # fallback: any language
-            hosters = self._parse_providers(html, None)
+        # Walk the fallback chain: e.g. GerDub -> GerSub -> EngSub
+        candidates = [ep.language] + LANG_FALLBACK.get(ep.language, [])
+        hosters: list[dict] = []
+        actual_lang = ep.language
+        for lang in candidates:
+            key = LANG_KEY.get(lang, "1")
+            hosters = self._parse_providers(html, key)
+            if hosters:
+                actual_lang = lang
+                if lang != ep.language:
+                    log.info(
+                        "aniworld: %s S%02dE%02d not in %s, falling back to %s",
+                        ep.slug, ep.season, ep.episode, ep.language, lang,
+                    )
+                break
+
         if not hosters:
             # LATE captcha check — only if parsing yielded nothing
             if is_captcha_page(html, 200):
                 raise CaptchaRequiredError(
                     f"Cloudflare / captcha challenge for {url}"
                 )
-            raise RuntimeError(f"aniworld: no hosters found for {url}")
+            tried = ", ".join(
+                LANG_LABEL.get(LANG_KEY.get(l, "1"), l) for l in candidates
+            )
+            raise RuntimeError(
+                f"aniworld: {ep.slug} S{ep.season:02d}E{ep.episode:02d} "
+                f"is not available in any of: {tried}"
+            )
 
         priority = await settings_store.get(
             "hoster_priority", ["VOE", "Vidmoly", "Vidoza", "Doodstream"]
@@ -192,7 +249,7 @@ class AniworldScraper(BaseScraper):
                     return StreamCandidate(
                         url=direct,
                         hoster=h["provider"],
-                        language=ep.language,
+                        language=actual_lang,
                         headers=headers_for(h["provider"]),
                     )
             except Exception as e:

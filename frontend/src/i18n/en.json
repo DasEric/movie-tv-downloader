@@ -69,7 +69,17 @@
     "watchFor30d": "Watch for 30 days",
     "watchFor90d": "Watch for 90 days",
     "watchForever": "Watch indefinitely",
-    "addedToWatchlist": "Added to watchlist ✓"
+    "addedToWatchlist": "Added to watchlist ✓",
+    "availableCount": "{{available}} of {{total}} available in {{language}}",
+    "notAvailableInLang": "Not available in this language",
+    "loadingLanguageInfo": "Checking language availability…",
+    "noEpisodesInLang": "No episodes available in this language",
+    "fallbackLang": "Will download as {{lang}}",
+    "seasonPartial": "{{added}} of {{total}} episodes added. {{skipped}} episodes are not yet available in {{language}}. Add the season to the watchlist so missing episodes are downloaded automatically when they become available?",
+    "seasonNoneAvailable": "None of the {{total}} episodes are currently available in {{language}}. Add the season to the watchlist so they are downloaded automatically when they become available?",
+    "episodeNotInLang": "{{episode}} is not currently available in {{language}}. Add the season to the watchlist so it's downloaded automatically when it becomes available?",
+    "addToWatchlistYes": "Yes, add to watchlist",
+    "addToWatchlistNo": "No thanks"
   },
   "queue": {
     "heading": "Download queue",
@@ -85,8 +95,10 @@
       "completed": "Done",
       "failed": "Failed",
       "paused": "Paused",
-      "waiting_release": "Waiting for release"
+      "waiting_release": "Waiting for release",
+      "rate_limited": "Rate limited / Captcha"
     },
+    "openInBrowser": "Open s.to in browser",
     "hoster": "Hoster",
     "speed": "Speed",
     "eta": "ETA",
@@ -97,7 +109,8 @@
     "resumeAll": "Resume all",
     "stopAll": "Stop all",
     "stopAllHint": "Aborts every running download immediately and marks them as paused",
-    "confirmStopAll": "Really stop all running downloads?"
+    "confirmStopAll": "Really stop all running downloads?",
+    "retryAll": "Retry all"
   },
   "watchlist": {
     "heading": "Season watchlist",

@@ -1,6 +1,8 @@
 """Search across the three sites + TMDB metadata lookup."""
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException, Query
 
 from app.models import ItemSource
@@ -75,6 +77,67 @@ async def list_episodes_route(source: ItemSource, slug: str, season: int):
     except Exception as e:
         raise HTTPException(502, f"failed to list episodes: {e}")
     return {"episodes": eps}
+
+
+@router.get("/episodes-with-lang")
+async def list_episodes_with_language(
+    source: ItemSource = Query(...),
+    slug: str = Query(...),
+    season: int = Query(...),
+    language: str = Query("de"),
+):
+    """
+    Return every episode in the season together with language availability.
+
+    For aniworld: walks the fallback chain (e.g. GerDub -> GerSub -> EngSub)
+    and returns which language will actually be used via `actual_language`.
+
+    For s.to: strict match, no fallback — `actual_language` equals `language`
+    when available, or null when not.
+    """
+    scraper = get_scraper(source)
+    if not isinstance(scraper, (StoScraper, AniworldScraper)):
+        raise HTTPException(400, "source has no episodes")
+    try:
+        eps = await scraper.list_episodes(slug, season)
+    except Exception as e:
+        raise HTTPException(502, f"failed to list episodes: {e}")
+
+    # Check all episodes concurrently (bounded to 5 parallel requests
+    # so we don't hammer the source site).
+    sem = asyncio.Semaphore(5)
+
+    async def check_ep(ep: int) -> dict:
+        async with sem:
+            try:
+                if isinstance(scraper, AniworldScraper):
+                    resolved = await scraper.resolve_episode_language(
+                        slug, season, ep, language
+                    )
+                    return {
+                        "episode": ep,
+                        "has_language": resolved is not None,
+                        "actual_language": resolved,
+                    }
+                else:
+                    has_lang = await scraper.episode_has_language(
+                        slug, season, ep, language
+                    )
+                    return {
+                        "episode": ep,
+                        "has_language": has_lang,
+                        "actual_language": language if has_lang else None,
+                    }
+            except Exception:
+                return {
+                    "episode": ep,
+                    "has_language": False,
+                    "actual_language": None,
+                }
+
+    result = await asyncio.gather(*[check_ep(ep) for ep in eps])
+    # Preserve episode order
+    return {"episodes": sorted(result, key=lambda r: r["episode"])}
 
 
 @router.get("/tmdb/movie")

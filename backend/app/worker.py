@@ -22,6 +22,7 @@ from app.scrapers.base import EpisodeRef
 from app.scrapers.megakino import MegakinoScraper
 from app.scrapers.sto import StoScraper
 from app.services import notifications, settings_store, subtitles
+from app.services.captcha import CaptchaRequiredError
 from app.services.downloader import download
 from app.services.postprocess import finalize_movie, finalize_tv
 
@@ -156,6 +157,10 @@ async def process_item(item_id: int) -> None:
             message="done",
             output_path=str(final_path),
         )
+        # Invalidate library cache so badges update immediately
+        from app.api.library import invalidate_cache
+        invalidate_cache()
+
         await notifications.notify(
             "Download complete",
             f"{item.title}\n→ `{final_path}`",
@@ -178,15 +183,37 @@ async def process_item(item_id: int) -> None:
             shutil.rmtree(tmp_dir, ignore_errors=True)
         current = await queue_manager.get(item_id)
         attempts = (current.attempts if current else 0) + 1
+
+        # Detect rate-limit / captcha errors and set a user-friendly
+        # message with a [RATE_LIMITED] prefix so the UI can show
+        # special instructions instead of a generic "failed" badge.
+        err_str = str(e)
+        is_rate_limited = (
+            isinstance(e, CaptchaRequiredError)
+            or "did not leave the site" in err_str
+            or "all hosters exhausted" in err_str
+        )
+
+        if is_rate_limited:
+            msg = (
+                "[RATE_LIMITED] s.to hat die Anfragen blockiert. "
+                "Bitte s.to im Browser öffnen, eventuelles Captcha lösen, "
+                "kurz warten und dann erneut versuchen."
+            )
+            status = ItemStatus.PAUSED
+        else:
+            msg = err_str[:300]
+            status = ItemStatus.FAILED
+
         await queue_manager.update(
             item_id,
-            status=ItemStatus.FAILED,
-            message=str(e)[:300],
+            status=status,
+            message=msg,
             attempts=attempts,
         )
         await notifications.notify(
-            "Download failed",
-            f"{(current.title if current else item_id)}\n{e}",
+            "Download failed" if not is_rate_limited else "Rate limited",
+            f"{(current.title if current else item_id)}\n{msg}",
             success=False,
         )
 

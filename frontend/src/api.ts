@@ -79,7 +79,10 @@ export const api = {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
-    }).then((r) => j<{ count: number; items: QueueItem[] }>(r)),
+    }).then(
+      (r) =>
+        j<{ count: number; items: QueueItem[]; skipped: number; total: number }>(r)
+    ),
   remove: (id: number) => fetch(`/api/queue/${id}`, { method: "DELETE" }).then(j),
   pause: (id: number) => fetch(`/api/queue/${id}/pause`, { method: "POST" }).then(j),
   resume: (id: number) => fetch(`/api/queue/${id}/resume`, { method: "POST" }).then(j),
@@ -102,6 +105,10 @@ export const api = {
     fetch("/api/queue/stop-all", { method: "POST" }).then((r) =>
       j<{ stopped: number }>(r)
     ),
+  retryAll: () =>
+    fetch("/api/queue/retry-all", { method: "POST" }).then((r) =>
+      j<{ retried: number }>(r)
+    ),
   clearCompleted: () =>
     fetch("/api/queue", { method: "DELETE" }).then((r) => j<{ removed: number }>(r)),
 
@@ -119,12 +126,46 @@ export const api = {
         slug
       )}&season=${season}`
     ).then((r) => j<{ episodes: number[] }>(r)),
+  listEpisodesWithLang: (
+    source: ItemSource,
+    slug: string,
+    season: number,
+    language: string
+  ) =>
+    fetch(
+      `/api/search/episodes-with-lang?source=${encodeURIComponent(
+        source
+      )}&slug=${encodeURIComponent(slug)}&season=${season}&language=${encodeURIComponent(
+        language
+      )}`
+    ).then(
+      (r) =>
+        j<{
+          episodes: {
+            episode: number;
+            has_language: boolean;
+            actual_language: string | null;
+          }[];
+        }>(r)
+    ),
   getShowDetails: (source: ItemSource, slug: string) =>
     fetch(
       `/api/search/details?source=${encodeURIComponent(source)}&slug=${encodeURIComponent(slug)}`
     ).then((r) =>
       j<{ title: string; poster: string | null; seasons: number[] }>(r)
     ),
+
+  // ---- library (download status) ----
+  checkShow: (title: string) =>
+    fetch(
+      `/api/library/show?title=${encodeURIComponent(title)}`
+    ).then((r) =>
+      j<{ found: boolean; seasons: Record<string, number[]>; total_episodes: number }>(r)
+    ),
+  checkMovie: (title: string, year?: number | null) =>
+    fetch(
+      `/api/library/movie?title=${encodeURIComponent(title)}${year ? `&year=${year}` : ""}`
+    ).then((r) => j<{ found: boolean }>(r)),
 
   getSettings: () => fetch("/api/settings").then((r) => j<any>(r)),
   updateSettings: (payload: any) =>

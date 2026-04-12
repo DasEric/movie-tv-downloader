@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, ItemSource, SearchResult } from "../api";
 
@@ -21,16 +21,41 @@ export function AddView() {
   const [selected, setSelected] = useState<SearchResult | null>(null);
   const [seasons, setSeasons] = useState<number[]>([]);
   const [season, setSeason] = useState<number | null>(null);
-  const [episodes, setEpisodes] = useState<number[]>([]);
+  const [episodes, setEpisodes] = useState<
+    { episode: number; has_language: boolean; actual_language: string | null }[]
+  >([]);
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [language, setLanguage] = useState("de");
+  const [loadingLang, setLoadingLang] = useState(false);
   const [quality, setQuality] = useState("1080p");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
+  // Library state: what episodes/movies are already on disk
+  const [librarySeasons, setLibrarySeasons] = useState<Record<string, number[]>>({});
+  const [movieOnDisk, setMovieOnDisk] = useState(false);
+
+  // Generation counter: incremented every time a new language check starts.
+  // Stale background callbacks compare their snapshot against this and
+  // bail out if a newer check has been triggered since.
+  const langCheckGen = useRef(0);
+
   const currentSource = SOURCES.find((s) => s.key === source);
   const kind = currentSource?.kind ?? "series";
   const languageLocked = currentSource?.languageLocked ?? false;
+
+  const langLabel = (code: string | null): string => {
+    if (!code) return "";
+    const map: Record<string, string> = {
+      de: t("common.gerDub"),
+      "de-dub": t("common.gerDub"),
+      "de-sub": t("common.gerSub"),
+      en: t("common.engDub"),
+      "en-dub": t("common.engDub"),
+      "en-sub": t("common.engSub"),
+    };
+    return map[code] ?? code;
+  };
 
   useEffect(() => {
     setSelected(null);
@@ -45,6 +70,28 @@ export function AddView() {
       setLanguage("de");
     }
   }, [source, languageLocked]);
+
+  // Re-check language availability when user changes the language dropdown.
+  // Keep existing episode numbers visible (optimistic), only update has_language.
+  useEffect(() => {
+    if (!selected?.slug || !season || kind !== "series" || languageLocked) return;
+    const gen = ++langCheckGen.current;
+    setLoadingLang(true);
+    setPicked(new Set());
+    setEpisodes((prev) =>
+      prev.map((e) => ({ ...e, has_language: true, actual_language: language }))
+    );
+    api
+      .listEpisodesWithLang(source, selected.slug, season, language)
+      .then((e) => {
+        if (gen === langCheckGen.current) setEpisodes(e.episodes);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (gen === langCheckGen.current) setLoadingLang(false);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [language]);
 
   const doSearch = async () => {
     if (!query.trim()) return;
@@ -66,8 +113,14 @@ export function AddView() {
     setSeasons([]);
     setEpisodes([]);
     setPicked(new Set());
+    setLibrarySeasons({});
+    setMovieOnDisk(false);
 
-    if (kind === "movie") return;
+    if (kind === "movie") {
+      // Check if movie is on disk
+      api.checkMovie(r.title, r.year).then((res) => setMovieOnDisk(res.found)).catch(() => {});
+      return;
+    }
     if (!r.slug) return;
 
     try {
@@ -85,10 +138,36 @@ export function AddView() {
       setSelected(merged);
       setResults((prev) => prev.map((p) => (p.url === r.url ? merged : p)));
 
+      // Check what's already on disk (background, non-blocking)
+      const showTitle = details.title || r.title;
+      api.checkShow(showTitle).then((lib) => setLibrarySeasons(lib.seasons)).catch(() => {});
+
       if (details.seasons.length) {
-        setSeason(details.seasons[0]);
-        const e = await api.listEpisodes(source, r.slug, details.seasons[0]);
-        setEpisodes(e.episodes);
+        const firstSeason = details.seasons[0];
+        setSeason(firstSeason);
+
+        // Step 1: load episode numbers instantly
+        try {
+          const fast = await api.listEpisodes(source, r.slug, firstSeason);
+          setEpisodes(
+            fast.episodes.map((ep) => ({ episode: ep, has_language: true, actual_language: language }))
+          );
+        } catch {
+          // ignore — episodes just won't show
+        }
+
+        // Step 2: language check in background (guarded by generation counter)
+        const gen = ++langCheckGen.current;
+        setLoadingLang(true);
+        api
+          .listEpisodesWithLang(source, r.slug, firstSeason, language)
+          .then((lang) => {
+            if (gen === langCheckGen.current) setEpisodes(lang.episodes);
+          })
+          .catch(() => {})
+          .finally(() => {
+            if (gen === langCheckGen.current) setLoadingLang(false);
+          });
       }
     } catch (e: any) {
       setMsg(e.message);
@@ -98,16 +177,51 @@ export function AddView() {
   const changeSeason = async (n: number) => {
     setSeason(n);
     setPicked(new Set());
-    if (selected?.slug) {
-      const e = await api.listEpisodes(source, selected.slug, n);
-      setEpisodes(e.episodes);
+    setEpisodes([]);
+    if (!selected?.slug) return;
+
+    // Bump generation so any in-flight background check from a previous
+    // season/pickResult is discarded when it resolves.
+    const gen = ++langCheckGen.current;
+
+    // Step 1: load episode numbers instantly (fast, single request)
+    try {
+      const fast = await api.listEpisodes(source, selected.slug, n);
+      if (gen !== langCheckGen.current) return; // stale
+      setEpisodes(
+        fast.episodes.map((ep) => ({ episode: ep, has_language: true, actual_language: language }))
+      );
+    } catch (e: any) {
+      setMsg(e.message || "failed to load episodes");
+      return;
+    }
+
+    // Step 2: check language availability in background
+    setLoadingLang(true);
+    try {
+      const lang = await api.listEpisodesWithLang(source, selected.slug, n, language);
+      if (gen !== langCheckGen.current) return; // stale
+      setEpisodes(lang.episodes);
+      setPicked(new Set());
+    } catch {
+      // Language check failed — keep optimistic view
+    } finally {
+      if (gen === langCheckGen.current) setLoadingLang(false);
     }
   };
 
-  const toggleEpisode = (n: number) => {
+  const [unavailableClickEp, setUnavailableClickEp] = useState<number | null>(null);
+
+  const toggleEpisode = (ep: { episode: number; has_language: boolean; actual_language: string | null }) => {
+    if (!ep.has_language) {
+      // Episode not in desired language — show watchlist prompt
+      setUnavailableClickEp(ep.episode);
+      setWatchlistPrompt({ skipped: 1, total: 1, added: 0 });
+      return;
+    }
     const next = new Set(picked);
-    if (next.has(n)) next.delete(n);
-    else next.add(n);
+    if (next.has(ep.episode)) next.delete(ep.episode);
+    else next.add(ep.episode);
     setPicked(next);
   };
 
@@ -153,11 +267,17 @@ export function AddView() {
     }
   };
 
+  const [watchlistPrompt, setWatchlistPrompt] = useState<{
+    skipped: number;
+    total: number;
+    added: number;
+  } | null>(null);
+
   const addWholeSeason = async () => {
     if (!selected || !season || !selected.slug) return;
     setBusy(true);
     try {
-      await api.addSeason({
+      const res = await api.addSeason({
         source,
         slug: selected.slug,
         title: selected.title,
@@ -165,12 +285,32 @@ export function AddView() {
         language,
         quality,
       });
-      setMsg("✓");
+      if (res.skipped > 0) {
+        setWatchlistPrompt({
+          skipped: res.skipped,
+          total: res.total,
+          added: res.count,
+        });
+      } else {
+        setMsg("✓");
+      }
     } catch (e: any) {
       setMsg(e.message);
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleWatchlistPromptYes = async () => {
+    setWatchlistPrompt(null);
+    setUnavailableClickEp(null);
+    await addToWatchlist(null);
+  };
+
+  const handleWatchlistPromptNo = () => {
+    setWatchlistPrompt(null);
+    setUnavailableClickEp(null);
+    if (!unavailableClickEp) setMsg("✓"); // only show checkmark for season-add, not single click
   };
 
   const addToWatchlist = async (expiresInDays: number | null) => {
@@ -283,6 +423,15 @@ export function AddView() {
                       {kind === "movie" ? "🎬" : "📺"}
                     </div>
                   )}
+                  {/* Download status badge */}
+                  {kind === "movie" && selected?.url === r.url && movieOnDisk && (
+                    <span className="download-badge complete" />
+                  )}
+                  {kind === "series" && selected?.url === r.url && Object.keys(librarySeasons).length > 0 && (() => {
+                    const libSeasonCount = Object.keys(librarySeasons).length;
+                    const allComplete = seasons.length > 0 && libSeasonCount >= seasons.length;
+                    return <span className={`download-badge ${allComplete ? "complete" : "partial"}`} />;
+                  })()}
                 </div>
                 <div className="result-body">
                   <div className="result-title">{r.title}</div>
@@ -337,36 +486,122 @@ export function AddView() {
         <>
           <h3>{t("add.chooseSeason")}</h3>
           <div className="badge-row">
-            {seasons.map((s) => (
-              <button
-                key={s}
-                className={season === s ? "primary" : ""}
-                onClick={() => changeSeason(s)}
-              >
-                {t("common.season")} {s}
-              </button>
-            ))}
+            {seasons.map((s) => {
+              const libEps = librarySeasons[String(s)];
+              const hasAll = libEps && episodes.length > 0 && libEps.length >= episodes.length && season === s;
+              const hasSome = libEps && libEps.length > 0;
+              return (
+                <button
+                  key={s}
+                  className={season === s ? "primary" : ""}
+                  onClick={() => changeSeason(s)}
+                >
+                  {hasSome && (
+                    <span className={`season-badge ${hasAll ? "complete" : "partial"}`} />
+                  )}
+                  {t("common.season")} {s}
+                </button>
+              );
+            })}
           </div>
 
           {episodes.length > 0 && (
             <>
-              <h3>{t("add.chooseEpisodes")}</h3>
+              <h3>
+                {t("add.chooseEpisodes")}
+                {loadingLang && (
+                  <span style={{ marginLeft: 10, fontSize: 12, color: "var(--text-dim)", fontWeight: "normal" }}>
+                    <span className="spinner" style={{ marginRight: 6 }} />
+                    {t("add.loadingLanguageInfo")}
+                  </span>
+                )}
+              </h3>
+              {(() => {
+                const available = episodes.filter((e) => e.has_language).length;
+                const total = episodes.length;
+                if (available < total) {
+                  return (
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: available === 0 ? "var(--danger)" : "var(--text-dim)",
+                        marginBottom: 8,
+                      }}
+                    >
+                      {available === 0
+                        ? t("add.noEpisodesInLang")
+                        : t("add.availableCount", {
+                            available,
+                            total,
+                            language: langLabel(language),
+                          })}
+                    </div>
+                  );
+                }
+                return null;
+              })()}
               <div className="row">
-                <button onClick={() => setPicked(new Set(episodes))}>
+                <button
+                  onClick={() =>
+                    setPicked(
+                      new Set(
+                        episodes.filter((e) => e.has_language).map((e) => e.episode)
+                      )
+                    )
+                  }
+                >
                   {t("add.selectAll")}
                 </button>
                 <button onClick={() => setPicked(new Set())}>{t("add.deselectAll")}</button>
               </div>
               <div className="episode-grid">
-                {episodes.map((e) => (
-                  <button
-                    key={e}
-                    className={picked.has(e) ? "selected" : ""}
-                    onClick={() => toggleEpisode(e)}
-                  >
-                    E{String(e).padStart(2, "0")}
-                  </button>
-                ))}
+                {episodes.map((e) => {
+                  const isFallback =
+                    e.has_language &&
+                    e.actual_language != null &&
+                    e.actual_language !== language;
+                  const onDisk = librarySeasons[String(season)]?.includes(e.episode);
+                  return (
+                    <button
+                      key={e.episode}
+                      className={
+                        (!e.has_language
+                          ? "unavailable"
+                          : picked.has(e.episode)
+                          ? "selected"
+                          : "") + (onDisk ? " on-disk" : "")
+                      }
+                      onClick={() => toggleEpisode(e)}
+                      disabled={!e.has_language}
+                      title={
+                        !e.has_language
+                          ? (t("add.notAvailableInLang") as string)
+                          : isFallback
+                          ? (t("add.fallbackLang", {
+                              lang: langLabel(e.actual_language),
+                            }) as string)
+                          : undefined
+                      }
+                    >
+                      <span>
+                        {onDisk && <span className="ep-check">&#10003;</span>}
+                        E{String(e.episode).padStart(2, "0")}
+                      </span>
+                      {isFallback && (
+                        <span
+                          style={{
+                            display: "block",
+                            fontSize: 9,
+                            opacity: 0.7,
+                            marginTop: 2,
+                          }}
+                        >
+                          {langLabel(e.actual_language)}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
               <div className="row" style={{ marginTop: 14, justifyContent: "flex-end" }}>
                 <button onClick={addWholeSeason} disabled={busy}>
@@ -432,6 +667,40 @@ export function AddView() {
             </>
           )}
         </>
+      )}
+      {/* Modal: offer watchlist when episodes are unavailable */}
+      {watchlistPrompt && (
+        <div className="modal-backdrop" onClick={handleWatchlistPromptNo}>
+          <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+            <h3>{t("add.watchSeasonHeading")}</h3>
+            <p>
+              {unavailableClickEp != null
+                ? t("add.episodeNotInLang", {
+                    episode: `E${String(unavailableClickEp).padStart(2, "0")}`,
+                    language: langLabel(language),
+                  })
+                : watchlistPrompt.added > 0
+                ? t("add.seasonPartial", {
+                    added: watchlistPrompt.added,
+                    skipped: watchlistPrompt.skipped,
+                    total: watchlistPrompt.total,
+                    language: langLabel(language),
+                  })
+                : t("add.seasonNoneAvailable", {
+                    total: watchlistPrompt.total,
+                    language: langLabel(language),
+                  })}
+            </p>
+            <div className="row" style={{ gap: 8 }}>
+              <button className="primary" onClick={handleWatchlistPromptYes}>
+                {t("add.addToWatchlistYes")}
+              </button>
+              <button onClick={handleWatchlistPromptNo}>
+                {t("add.addToWatchlistNo")}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -20,6 +20,11 @@ export function QueueView({ items, counts }: Props) {
 
   const hasActive = counts.running > 0 || counts.waiting > 0;
   const hasPaused = items.some((i) => i.status === "paused");
+  const hasRetryable = items.some(
+    (i) =>
+      i.status === "failed" ||
+      (i.status === "paused" && i.message?.startsWith("[RATE_LIMITED]"))
+  );
 
   return (
     <div className="card">
@@ -69,6 +74,14 @@ export function QueueView({ items, counts }: Props) {
         >
           ⏹ {t("queue.stopAll")}
         </button>
+        <button
+          disabled={!hasRetryable}
+          onClick={async () => {
+            await api.retryAll();
+          }}
+        >
+          {t("queue.retryAll")}
+        </button>
         <div style={{ flex: 1 }} />
         <button
           className="danger"
@@ -101,12 +114,27 @@ function QueueRow({ item }: { item: QueueItem }) {
           item.episode
         ).padStart(2, "0")}`;
 
+  const isRateLimited = item.message?.startsWith("[RATE_LIMITED]") ?? false;
+  const displayMessage = isRateLimited
+    ? item.message!.replace("[RATE_LIMITED] ", "")
+    : item.message;
+
+  // Build s.to episode URL for the "open in browser" link
+  const stoUrl =
+    isRateLimited && item.source === "s.to" && item.slug && item.season && item.episode
+      ? `https://s.to/serie/stream/${item.slug}/staffel-${item.season}/episode-${item.episode}`
+      : isRateLimited && item.source === "s.to"
+      ? "https://s.to"
+      : null;
+
   return (
     <div className="queue-item">
       <div>
         <div className="title-row">
           <span className="title">{label}</span>
-          <span className={`tag ${item.status}`}>{t(`queue.status.${item.status}`)}</span>
+          <span className={`tag ${isRateLimited ? "warning" : item.status}`}>
+            {isRateLimited ? t("queue.status.rate_limited") : t(`queue.status.${item.status}`)}
+          </span>
           <span className="tag">{item.source}</span>
           <span className="tag">{item.language}</span>
           <span className="tag">{item.quality}</span>
@@ -132,7 +160,52 @@ function QueueRow({ item }: { item: QueueItem }) {
           </div>
         )}
 
-        {item.message && <div className="meta" style={{ marginTop: 6 }}>{item.message}</div>}
+        {isRateLimited && (
+          <div
+            className="rate-limit-box"
+            style={{
+              marginTop: 8,
+              padding: 10,
+              background: "rgba(245, 158, 11, 0.1)",
+              border: "1px solid var(--warning)",
+              borderRadius: 6,
+              fontSize: 13,
+            }}
+          >
+            <div style={{ marginBottom: 6 }}>{displayMessage}</div>
+            <div className="row" style={{ gap: 8 }}>
+              {stoUrl && (
+                <a
+                  href={stoUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-link"
+                  style={{
+                    display: "inline-block",
+                    padding: "4px 10px",
+                    background: "var(--warning)",
+                    color: "#000",
+                    borderRadius: 4,
+                    textDecoration: "none",
+                    fontSize: 12,
+                  }}
+                >
+                  {t("queue.openInBrowser")}
+                </a>
+              )}
+              <button
+                style={{ fontSize: 12, padding: "4px 10px" }}
+                onClick={() => api.resume(item.id)}
+              >
+                {t("common.retry")}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!isRateLimited && displayMessage && (
+          <div className="meta" style={{ marginTop: 6 }}>{displayMessage}</div>
+        )}
         {item.output_path && item.status === "completed" && (
           <div className="meta" style={{ marginTop: 6 }}>
             {t("queue.output")}: <code>{item.output_path}</code>
@@ -143,7 +216,7 @@ function QueueRow({ item }: { item: QueueItem }) {
       <div className="actions">
         {item.status === "downloading" || item.status === "queued" ? (
           <button onClick={() => api.pause(item.id)}>{t("common.pause")}</button>
-        ) : item.status === "paused" ? (
+        ) : item.status === "paused" && !isRateLimited ? (
           <button onClick={() => api.resume(item.id)}>{t("common.resume")}</button>
         ) : item.status === "failed" ? (
           <button onClick={() => api.retry(item.id)}>{t("common.retry")}</button>

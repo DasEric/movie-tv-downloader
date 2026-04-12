@@ -1,6 +1,8 @@
 """Queue REST endpoints."""
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException
 
 from app.api.schemas import (
@@ -79,8 +81,23 @@ async def add_full_season(req: AddSeasonRequest):
             f"no episodes found for {req.slug} season {req.season} — "
             "wrong slug or season number?",
         )
+    # Check language availability concurrently (bounded to 5 parallel).
+    sem = asyncio.Semaphore(5)
+
+    async def check(ep: int) -> bool:
+        async with sem:
+            try:
+                return await scraper.episode_has_language(
+                    req.slug, req.season, ep, req.language
+                )
+            except Exception:
+                return False
+
+    checks = await asyncio.gather(*[check(ep) for ep in eps])
+    available = [ep for ep, ok in zip(eps, checks) if ok]
+    skipped = [ep for ep, ok in zip(eps, checks) if not ok]
     created = []
-    for ep in eps:
+    for ep in available:
         item = QueueItem(
             source=req.source,
             kind=ItemKind.EPISODE,
@@ -93,7 +110,12 @@ async def add_full_season(req: AddSeasonRequest):
         )
         saved = await queue_manager.add(item)
         created.append(saved.model_dump(mode="json"))
-    return {"count": len(created), "items": created}
+    return {
+        "count": len(created),
+        "items": created,
+        "skipped": len(skipped),
+        "total": len(eps),
+    }
 
 
 @router.delete("/{item_id}")
@@ -129,6 +151,30 @@ async def retry_item(item_id: int):
 async def reorder(req: ReorderRequest):
     await queue_manager.reorder(req.order)
     return {"ok": True}
+
+
+@router.post("/retry-all")
+async def retry_all():
+    """Re-queue all failed and rate-limited (paused with [RATE_LIMITED]) items."""
+    items = await queue_manager.list_items()
+    count = 0
+    for it in items:
+        if it.id is None:
+            continue
+        is_failed = it.status == ItemStatus.FAILED
+        is_rate_limited = (
+            it.status == ItemStatus.PAUSED
+            and it.message
+            and it.message.startswith("[RATE_LIMITED]")
+        )
+        if is_failed or is_rate_limited:
+            await queue_manager.update(
+                it.id, status=ItemStatus.QUEUED, progress=0.0, message="retrying"
+            )
+            count += 1
+    if count:
+        queue_manager._wake.set()
+    return {"retried": count}
 
 
 @router.post("/pause-all")

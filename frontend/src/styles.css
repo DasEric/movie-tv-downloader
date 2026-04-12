@@ -172,6 +172,7 @@ main {
 .tag.failed { color: var(--danger); border-color: var(--danger); }
 .tag.paused { color: var(--text-dim); }
 .tag.waiting_release { color: var(--warning); border-color: var(--warning); }
+.tag.warning { color: var(--warning); border-color: var(--warning); }
 
 .progressbar {
   width: 100%;
@@ -268,6 +269,7 @@ main {
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  position: relative;
 }
 .poster-wrap img {
   width: 100%;
@@ -334,6 +336,94 @@ main {
   color: #001017;
   border-color: var(--accent);
 }
+.episode-grid button.unavailable {
+  opacity: 0.35;
+  cursor: not-allowed;
+  text-decoration: line-through;
+}
+
+/* Download status badge on poster */
+.download-badge {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: bold;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+}
+.download-badge.complete {
+  background: var(--success);
+  color: #fff;
+}
+.download-badge.complete::after { content: "\2713"; }
+.download-badge.partial {
+  background: var(--warning);
+  color: #000;
+}
+.download-badge.partial::after { content: "\2212"; }
+
+/* Season button badge */
+.season-badge {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+.season-badge.complete { background: var(--success); }
+.season-badge.partial { background: var(--warning); }
+
+/* Episode on-disk indicator */
+.episode-grid button.on-disk {
+  border-color: var(--success);
+}
+.ep-check {
+  color: var(--success);
+  font-size: 10px;
+  margin-right: 2px;
+}
+
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--text-dim);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  vertical-align: middle;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+.modal-box {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  max-width: 480px;
+  width: 90%;
+  box-shadow: var(--shadow);
+}
+.modal-box h3 { margin: 0 0 12px; }
+.modal-box p { margin: 0 0 18px; color: var(--text-dim); font-size: 14px; line-height: 1.5; }
+.modal-box .row { justify-content: flex-end; }
 
 footer {
   text-align: center;

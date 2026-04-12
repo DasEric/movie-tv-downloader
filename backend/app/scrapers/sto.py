@@ -16,6 +16,7 @@ HTML contract:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from urllib.parse import urlparse
@@ -32,6 +33,13 @@ from app.services.http import get, get_client
 log = logging.getLogger(__name__)
 
 BASE = "https://s.to"
+
+# Global rate limiter for s.to redirect requests. s.to blocks redirects
+# when too many fire in parallel (the /r?t=... endpoint just stays on
+# s.to instead of bouncing to the hoster). A semaphore of 1 serialises
+# redirect requests so they go out one at a time.
+_REDIRECT_SEM = asyncio.Semaphore(1)
+_REDIRECT_DELAY = 1.5  # seconds between consecutive redirect requests
 
 # Language selection map — s.to uses human-readable labels
 LANG_LABEL = {
@@ -158,10 +166,8 @@ class StoScraper(BaseScraper):
         url = f"{BASE}/serie/stream/{ep.slug}/staffel-{ep.season}/episode-{ep.episode}"
         html = await get(url)
 
-        hosters = self._parse_providers(html, LANG_LABEL.get(ep.language, "Deutsch"))
-        if not hosters:
-            # Fallback: any language label
-            hosters = self._parse_providers(html, None)
+        label = LANG_LABEL.get(ep.language, "Deutsch")
+        hosters = self._parse_providers(html, label)
         if not hosters:
             # LATE captcha check: only if we can't find any providers AND
             # the page contains definitive challenge markers
@@ -170,7 +176,10 @@ class StoScraper(BaseScraper):
                     f"Cloudflare / captcha challenge for {url} — "
                     "curl_cffi TLS fingerprint was insufficient this time."
                 )
-            raise RuntimeError(f"s.to: no hosters found for {url}")
+            raise RuntimeError(
+                f"s.to: {ep.slug} S{ep.season:02d}E{ep.episode:02d} "
+                f"is not available in {label}"
+            )
 
         priority = await settings_store.get(
             "hoster_priority", ["VOE", "Vidmoly", "Vidoza", "Doodstream"]
@@ -245,26 +254,52 @@ class StoScraper(BaseScraper):
     async def _resolve_redirect(play_url: str) -> str:
         """
         Follow the s.to /r?t=... redirect to the actual hoster embed page.
-        Raises CaptchaRequiredError only if we land on a confirmed challenge.
-        """
-        c = await get_client()
-        target = play_url if play_url.startswith("http") else BASE + play_url
-        r = await c.get(target, allow_redirects=True)
-        r.raise_for_status()
 
-        final = str(r.url)
-        netloc = urlparse(final).netloc
-        # Still on s.to after the redirect → inline modal was shown
-        if netloc.endswith("s.to") or netloc.endswith("serienstream.to"):
-            if is_captcha_page(r.text, r.status_code):
-                raise CaptchaRequiredError(
-                    f"s.to inline Turnstile modal blocked redirect for {target}."
+        s.to rate-limits redirect requests: when too many fire in
+        parallel the response just stays on s.to. We serialise them
+        through a semaphore and add a small delay, retrying up to 3
+        times with increasing backoff.
+        """
+        target = play_url if play_url.startswith("http") else BASE + play_url
+
+        last_err: Exception | None = None
+        for attempt in range(3):
+            async with _REDIRECT_SEM:
+                if attempt > 0:
+                    wait = _REDIRECT_DELAY * (attempt + 1)
+                    log.info(
+                        "s.to: redirect retry #%d for %s (waiting %.1fs)",
+                        attempt, target, wait,
+                    )
+                    await asyncio.sleep(wait)
+                else:
+                    await asyncio.sleep(_REDIRECT_DELAY)
+
+                c = await get_client()
+                r = await c.get(target, allow_redirects=True)
+                r.raise_for_status()
+
+                final = str(r.url)
+                netloc = urlparse(final).netloc
+
+                if not (netloc.endswith("s.to") or netloc.endswith("serienstream.to")):
+                    return final
+
+                # Still on s.to — check if it's a captcha or rate limit
+                if is_captcha_page(r.text, r.status_code):
+                    raise CaptchaRequiredError(
+                        f"s.to inline Turnstile modal blocked redirect for {target}."
+                    )
+
+                last_err = RuntimeError(
+                    f"s.to redirect {target} did not leave the site "
+                    f"(landed at {final})"
                 )
-            # Not a captcha — the redirect just didn't fire. Raise a normal error.
-            raise RuntimeError(
-                f"s.to redirect {target} did not leave the site (landed at {final})"
-            )
-        return final
+                log.warning(
+                    "s.to: redirect stayed on site (attempt %d/3)", attempt + 1
+                )
+
+        raise last_err or RuntimeError(f"s.to redirect failed for {target}")
 
 
 def _order_by_priority(hosters: list[dict], priority) -> list[dict]:
