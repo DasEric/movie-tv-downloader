@@ -51,10 +51,10 @@ def _safe_file_token(name: str) -> str:
 
 def tv_target(show: str, season: int, episode: int) -> Path:
     """
-    /tv/Show Name/Season XX/Show_Name_SXXEYY.mp4
+    /tv/Show Name/SXX/Show_Name_SXXEYY.mp4
     """
     clean = _clean_show_title(show)
-    folder = TV_ROOT / _safe_folder(clean) / f"Season {season:02d}"
+    folder = TV_ROOT / _safe_folder(clean) / f"S{season:02d}"
     fname = f"{_safe_file_token(clean)}_S{season:02d}E{episode:02d}.mp4"
     return folder / fname
 
