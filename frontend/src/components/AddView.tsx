@@ -324,13 +324,10 @@ export function AddView() {
         language,
         quality,
       });
-      if (res.skipped > 0) {
-        setMsg(
-          `✓ ${res.count} ${t("common.episode", { count: res.count })} (${res.seasons} ${t("common.season", { count: res.seasons })}) — ${res.skipped} ${t("add.skippedNotInLang")}`
-        );
-      } else {
-        setMsg(`✓ ${res.count} ${t("common.episode", { count: res.count })} (${res.seasons} ${t("common.season", { count: res.seasons })})`);
-      }
+      const parts = [`✓ ${res.count} ${t("common.episode", { count: res.count })} (${res.seasons} ${t("common.season", { count: res.seasons })})`];
+      if (res.already_on_disk > 0) parts.push(`${res.already_on_disk} ${t("add.alreadyOnDisk")}`);
+      if (res.skipped > 0) parts.push(`${res.skipped} ${t("add.skippedNotInLang")}`);
+      setMsg(parts.join(" — "));
     } catch (e: any) {
       setMsg(e.message);
     } finally {
@@ -357,7 +354,9 @@ export function AddView() {
           added: res.count,
         });
       } else {
-        setMsg("✓");
+        const parts = ["✓"];
+        if (res.already_on_disk > 0) parts.push(`${res.already_on_disk} ${t("add.alreadyOnDisk")}`);
+        setMsg(parts.join(" — "));
       }
     } catch (e: any) {
       setMsg(e.message);

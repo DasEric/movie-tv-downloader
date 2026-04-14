@@ -81,7 +81,7 @@ export const api = {
       body: JSON.stringify(payload),
     }).then(
       (r) =>
-        j<{ count: number; items: QueueItem[]; skipped: number; total: number }>(r)
+        j<{ count: number; items: QueueItem[]; skipped: number; total: number; already_on_disk: number }>(r)
     ),
   addSeries: (payload: any) =>
     fetch("/api/queue/series", {
@@ -90,7 +90,7 @@ export const api = {
       body: JSON.stringify(payload),
     }).then(
       (r) =>
-        j<{ count: number; items: QueueItem[]; skipped: number; total: number; seasons: number }>(r)
+        j<{ count: number; items: QueueItem[]; skipped: number; total: number; seasons: number; already_on_disk: number }>(r)
     ),
   remove: (id: number) => fetch(`/api/queue/${id}`, { method: "DELETE" }).then(j),
   pause: (id: number) => fetch(`/api/queue/${id}/pause`, { method: "POST" }).then(j),

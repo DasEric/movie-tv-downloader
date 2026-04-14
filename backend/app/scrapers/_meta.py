@@ -147,16 +147,32 @@ def absolutize(url: str | None, base: str) -> str | None:
     return url
 
 
+_STAFFEL_SUFFIX_RE = re.compile(
+    r"\s*[-–—]?\s*[Ss]taffel\s+\d+\s*$", re.IGNORECASE
+)
+
+
 def extract_title(html: str, fallback: str = "") -> str:
-    """Extract the page title from <h1 itemprop="name"> or <title>."""
+    """Extract the page title from <h1 itemprop="name"> or <title>.
+
+    Strips trailing "Staffel X" suffixes that s.to / aniworld sometimes
+    include in page titles — they're navigation context, not part of the
+    actual show name.
+    """
     if not html:
         return fallback
+    title: str | None = None
     m = re.search(
         r'<h1[^>]*itemprop="name"[^>]*>([^<]+)</h1>', html, re.IGNORECASE
     )
     if m:
-        return m.group(1).strip()
-    m = re.search(r"<title>([^<|]+)", html, re.IGNORECASE)
-    if m:
-        return m.group(1).strip()
-    return fallback
+        title = m.group(1).strip()
+    if not title:
+        m = re.search(r"<title>([^<|]+)", html, re.IGNORECASE)
+        if m:
+            title = m.group(1).strip()
+    if not title:
+        return fallback
+    # Strip "Staffel X" suffix — always metadata, never part of the name.
+    title = _STAFFEL_SUFFIX_RE.sub("", title).strip()
+    return title or fallback

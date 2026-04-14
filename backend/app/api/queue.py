@@ -5,6 +5,7 @@ import asyncio
 
 from fastapi import APIRouter, HTTPException
 
+from app.api.library import get_existing_episodes
 from app.api.schemas import (
     AddItemRequest,
     AddSeasonRequest,
@@ -94,6 +95,14 @@ async def add_full_season(req: AddSeasonRequest):
             except Exception:
                 return False
 
+    # Filter out episodes already on disk.
+    on_disk = set(get_existing_episodes(req.title).get(req.season, []))
+    eps = [ep for ep in eps if ep not in on_disk]
+
+    if not eps:
+        return {"count": 0, "items": [], "skipped": 0, "total": 0,
+                "already_on_disk": len(on_disk)}
+
     checks = await asyncio.gather(*[check(ep) for ep in eps])
     available = [ep for ep, ok in zip(eps, checks) if ok]
     skipped = [ep for ep, ok in zip(eps, checks) if not ok]
@@ -116,6 +125,7 @@ async def add_full_season(req: AddSeasonRequest):
         "items": created,
         "skipped": len(skipped),
         "total": len(eps),
+        "already_on_disk": len(on_disk),
     }
 
 
@@ -132,17 +142,28 @@ async def add_full_series(req: AddSeriesRequest):
     if not season_nums:
         raise HTTPException(404, f"no seasons found for {req.slug}")
 
+    # Check what's already on disk so we don't re-download.
+    existing = get_existing_episodes(req.title)
+
     sem = asyncio.Semaphore(5)
     total_created = []
     total_skipped = 0
     total_eps = 0
+    total_on_disk = 0
 
     for sn in season_nums:
         try:
             eps = await scraper.list_episodes(req.slug, sn)
         except Exception:
             continue
+
+        on_disk = set(existing.get(sn, []))
+        new_eps = [ep for ep in eps if ep not in on_disk]
         total_eps += len(eps)
+        total_on_disk += len(eps) - len(new_eps)
+
+        if not new_eps:
+            continue
 
         async def check(ep: int, season: int = sn) -> bool:
             async with sem:
@@ -153,8 +174,8 @@ async def add_full_series(req: AddSeriesRequest):
                 except Exception:
                     return False
 
-        checks = await asyncio.gather(*[check(ep) for ep in eps])
-        available = [ep for ep, ok in zip(eps, checks) if ok]
+        checks = await asyncio.gather(*[check(ep) for ep in new_eps])
+        available = [ep for ep, ok in zip(new_eps, checks) if ok]
         total_skipped += sum(1 for ok in checks if not ok)
 
         for ep in available:
@@ -177,6 +198,7 @@ async def add_full_series(req: AddSeriesRequest):
         "skipped": total_skipped,
         "total": total_eps,
         "seasons": len(season_nums),
+        "already_on_disk": total_on_disk,
     }
 
 

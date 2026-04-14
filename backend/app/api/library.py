@@ -131,6 +131,27 @@ def _scan_episodes(folder: Path) -> list[int]:
     return sorted(episodes)
 
 
+def get_existing_episodes(title: str) -> dict[int, list[int]]:
+    """Return {season_number: [episode_numbers]} for episodes already on disk.
+
+    This is a non-async helper for internal use (queue endpoints) so they
+    can skip episodes that are already downloaded.
+    """
+    show_dir = _find_show_dir(title)
+    if not show_dir:
+        return {}
+    season_dirs = _find_season_dirs(show_dir)
+    if not season_dirs:
+        eps = _scan_episodes(show_dir)
+        return {1: eps} if eps else {}
+    result: dict[int, list[int]] = {}
+    for num, path in season_dirs.items():
+        eps = _scan_episodes(path)
+        if eps:
+            result[num] = eps
+    return result
+
+
 # ---------- endpoints ----------
 
 @router.get("/show")

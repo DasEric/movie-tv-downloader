@@ -59,6 +59,7 @@
     "addWholeSeason": "Add whole season",
     "addWholeSeries": "Download entire series",
     "skippedNotInLang": "skipped (language not available)",
+    "alreadyOnDisk": "already downloaded",
     "addMovie": "Add movie",
     "language": "Language track",
     "quality": "Quality",
