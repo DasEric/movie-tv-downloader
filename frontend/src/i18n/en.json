@@ -57,6 +57,8 @@
     "deselectAll": "None",
     "addSelected": "Add selected",
     "addWholeSeason": "Add whole season",
+    "addWholeSeries": "Download entire series",
+    "skippedNotInLang": "skipped (language not available)",
     "addMovie": "Add movie",
     "language": "Language track",
     "quality": "Quality",

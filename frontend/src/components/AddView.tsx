@@ -313,6 +313,31 @@ export function AddView() {
     added: number;
   } | null>(null);
 
+  const addWholeSeries = async () => {
+    if (!selected || !selected.slug) return;
+    setBusy(true);
+    try {
+      const res = await api.addSeries({
+        source,
+        slug: selected.slug,
+        title: selected.title,
+        language,
+        quality,
+      });
+      if (res.skipped > 0) {
+        setMsg(
+          `✓ ${res.count} ${t("common.episode", { count: res.count })} (${res.seasons} ${t("common.season", { count: res.seasons })}) — ${res.skipped} ${t("add.skippedNotInLang")}`
+        );
+      } else {
+        setMsg(`✓ ${res.count} ${t("common.episode", { count: res.count })} (${res.seasons} ${t("common.season", { count: res.seasons })})`);
+      }
+    } catch (e: any) {
+      setMsg(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const addWholeSeason = async () => {
     if (!selected || !season || !selected.slug) return;
     setBusy(true);
@@ -519,7 +544,12 @@ export function AddView() {
 
       {selected && kind === "series" && seasons.length > 0 && (
         <>
-          <h3>{t("add.chooseSeason")}</h3>
+          <div className="row" style={{ alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+            <h3 style={{ margin: 0 }}>{t("add.chooseSeason")}</h3>
+            <button onClick={addWholeSeries} disabled={busy}>
+              {t("add.addWholeSeries")}
+            </button>
+          </div>
           <div className="badge-row">
             {seasons.map((s) => {
               const libEps = librarySeasons[String(s)];

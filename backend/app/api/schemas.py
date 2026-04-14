@@ -43,6 +43,14 @@ class AddSeasonRequest(BaseModel):
     quality: str = "1080p"
 
 
+class AddSeriesRequest(BaseModel):
+    source: ItemSource
+    slug: str
+    title: str
+    language: str = "de"
+    quality: str = "1080p"
+
+
 class ReorderRequest(BaseModel):
     order: list[int]
 

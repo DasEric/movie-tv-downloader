@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 from app.api.schemas import (
     AddItemRequest,
     AddSeasonRequest,
+    AddSeriesRequest,
     BulkAddEpisodesRequest,
     ReorderRequest,
 )
@@ -115,6 +116,67 @@ async def add_full_season(req: AddSeasonRequest):
         "items": created,
         "skipped": len(skipped),
         "total": len(eps),
+    }
+
+
+@router.post("/series")
+async def add_full_series(req: AddSeriesRequest):
+    """Queue every episode of every season for a show."""
+    scraper = get_scraper(req.source)
+    if not isinstance(scraper, (StoScraper, AniworldScraper)):
+        raise HTTPException(400, "source does not support seasons")
+    try:
+        season_nums = await scraper.list_seasons(req.slug)
+    except Exception as e:
+        raise HTTPException(502, f"failed to list seasons: {e}")
+    if not season_nums:
+        raise HTTPException(404, f"no seasons found for {req.slug}")
+
+    sem = asyncio.Semaphore(5)
+    total_created = []
+    total_skipped = 0
+    total_eps = 0
+
+    for sn in season_nums:
+        try:
+            eps = await scraper.list_episodes(req.slug, sn)
+        except Exception:
+            continue
+        total_eps += len(eps)
+
+        async def check(ep: int, season: int = sn) -> bool:
+            async with sem:
+                try:
+                    return await scraper.episode_has_language(
+                        req.slug, season, ep, req.language
+                    )
+                except Exception:
+                    return False
+
+        checks = await asyncio.gather(*[check(ep) for ep in eps])
+        available = [ep for ep, ok in zip(eps, checks) if ok]
+        total_skipped += sum(1 for ok in checks if not ok)
+
+        for ep in available:
+            item = QueueItem(
+                source=req.source,
+                kind=ItemKind.EPISODE,
+                title=req.title,
+                slug=req.slug,
+                season=sn,
+                episode=ep,
+                language=req.language,
+                quality=req.quality,
+            )
+            saved = await queue_manager.add(item)
+            total_created.append(saved.model_dump(mode="json"))
+
+    return {
+        "count": len(total_created),
+        "items": total_created,
+        "skipped": total_skipped,
+        "total": total_eps,
+        "seasons": len(season_nums),
     }
 
 
