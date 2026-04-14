@@ -32,7 +32,37 @@ from app.services.http import get, get_client
 
 log = logging.getLogger(__name__)
 
-BASE = "https://s.to"
+_DOMAINS = ["https://s.to", "https://serienstream.to"]
+# Index into _DOMAINS — rotated on failure so the next call starts with
+# the domain that last worked.
+_active_idx: int = 0
+
+
+async def _get_with_fallback(path: str, **kwargs) -> str:
+    """Try GET on the active domain; on failure rotate to the next domain."""
+    global _active_idx
+    last_err: Exception | None = None
+    for i in range(len(_DOMAINS)):
+        base = _DOMAINS[(_active_idx + i) % len(_DOMAINS)]
+        try:
+            html = await get(f"{base}{path}", **kwargs)
+            # Success — remember this domain for future calls.
+            _active_idx = (_active_idx + i) % len(_DOMAINS)
+            return html
+        except Exception as e:
+            log.warning("s.to domain %s failed for %s: %s", base, path, e)
+            last_err = e
+            continue
+    raise last_err or RuntimeError(f"all s.to domains failed for {path}")
+
+
+def _current_base() -> str:
+    """Return the currently preferred base URL (for URL construction)."""
+    return _DOMAINS[_active_idx]
+
+
+# Keep BASE as a constant for the redirect check — both domains are valid.
+BASE = _DOMAINS[0]
 
 # Global rate limiter for s.to redirect requests. s.to blocks redirects
 # when too many fire in parallel (the /r?t=... endpoint just stays on
@@ -95,14 +125,15 @@ class StoScraper(BaseScraper):
             if not slug:
                 return []
 
-        url = f"{BASE}/serie/stream/{slug}"
         try:
-            html = await get(url)
+            html = await _get_with_fallback(f"/serie/stream/{slug}")
         except Exception as e:
             log.info("s.to slug fallback %r failed: %s", slug, e)
             return []
 
-        poster = absolutize(extract_poster(html), BASE)
+        base = _current_base()
+        url = f"{base}/serie/stream/{slug}"
+        poster = absolutize(extract_poster(html), base)
         title = extract_title(html, slug.replace("-", " ").title())
 
         return [
@@ -115,14 +146,14 @@ class StoScraper(BaseScraper):
         ]
 
     async def list_seasons(self, slug: str) -> list[int]:
-        html = await get(f"{BASE}/serie/stream/{slug}")
+        html = await _get_with_fallback(f"/serie/stream/{slug}")
         seasons: set[int] = set()
         for m in re.finditer(r"/staffel-(\d+)", html):
             seasons.add(int(m.group(1)))
         return sorted(seasons)
 
     async def list_episodes(self, slug: str, season: int) -> list[int]:
-        html = await get(f"{BASE}/serie/stream/{slug}/staffel-{season}")
+        html = await _get_with_fallback(f"/serie/stream/{slug}/staffel-{season}")
         eps: set[int] = set()
         for m in re.finditer(r"/episode-(\d+)", html):
             eps.add(int(m.group(1)))
@@ -132,8 +163,9 @@ class StoScraper(BaseScraper):
 
     async def fetch_show_details(self, slug: str) -> dict:
         """One-shot fetch for the UI: poster + season list + title."""
-        html = await get(f"{BASE}/serie/stream/{slug}")
-        poster = absolutize(extract_poster(html), BASE)
+        html = await _get_with_fallback(f"/serie/stream/{slug}")
+        base = _current_base()
+        poster = absolutize(extract_poster(html), base)
         seasons: set[int] = set()
         for m in re.finditer(r"/staffel-(\d+)", html):
             seasons.add(int(m.group(1)))
@@ -153,9 +185,10 @@ class StoScraper(BaseScraper):
         spawning queue items for episodes that aren't in the user's
         language yet.
         """
-        url = f"{BASE}/serie/stream/{slug}/staffel-{season}/episode-{episode}"
         try:
-            html = await get(url)
+            html = await _get_with_fallback(
+                f"/serie/stream/{slug}/staffel-{season}/episode-{episode}"
+            )
         except Exception:
             return False
         label = LANG_LABEL.get(language, "Deutsch")
@@ -163,8 +196,9 @@ class StoScraper(BaseScraper):
         return bool(hosters)
 
     async def get_stream(self, ep: EpisodeRef) -> StreamCandidate:
-        url = f"{BASE}/serie/stream/{ep.slug}/staffel-{ep.season}/episode-{ep.episode}"
-        html = await get(url)
+        html = await _get_with_fallback(
+            f"/serie/stream/{ep.slug}/staffel-{ep.season}/episode-{ep.episode}"
+        )
 
         label = LANG_LABEL.get(ep.language, "Deutsch")
         hosters = self._parse_providers(html, label)
@@ -172,6 +206,7 @@ class StoScraper(BaseScraper):
             # LATE captcha check: only if we can't find any providers AND
             # the page contains definitive challenge markers
             if is_captcha_page(html, 200):
+                url = f"{_current_base()}/serie/stream/{ep.slug}/staffel-{ep.season}/episode-{ep.episode}"
                 raise CaptchaRequiredError(
                     f"Cloudflare / captcha challenge for {url} — "
                     "curl_cffi TLS fingerprint was insufficient this time."
@@ -260,7 +295,7 @@ class StoScraper(BaseScraper):
         through a semaphore and add a small delay, retrying up to 3
         times with increasing backoff.
         """
-        target = play_url if play_url.startswith("http") else BASE + play_url
+        target = play_url if play_url.startswith("http") else _current_base() + play_url
 
         last_err: Exception | None = None
         for attempt in range(3):
