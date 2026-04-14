@@ -17,6 +17,33 @@ router = APIRouter(prefix="/api/library", tags=["library"])
 
 VIDEO_EXTS = {".mp4", ".mkv", ".avi", ".ts", ".m4v", ".webm", ".flv"}
 
+# ---------- name normalization ----------
+
+_STRIP_YEAR = re.compile(r"\s*\(\d{4}\)\s*$")
+_STRIP_STAFFEL = re.compile(r"\s*[Ss]taffel\s+\d+\s*$")
+_NON_ALNUM = re.compile(r"[^a-z0-9 ]+")
+_MULTI_SPACE = re.compile(r"\s+")
+
+
+def _normalize(name: str) -> str:
+    """Aggressive normalization for matching: lowercase, strip year/staffel
+    suffix, remove all non-alphanumeric chars, collapse whitespace.
+
+    Examples:
+        "Grey's Anatomy"         -> "greys anatomy"
+        "Marvel's Agents of S.H.I.E.L.D." -> "marvels agents of shield"
+        "The Flash (2014)"       -> "the flash"
+        "Dr. House"              -> "dr house"
+        "The Rookie Staffel 1"   -> "the rookie"
+    """
+    s = name.strip().lower()
+    s = _STRIP_YEAR.sub("", s)
+    s = _STRIP_STAFFEL.sub("", s)
+    s = _NON_ALNUM.sub("", s)
+    s = _MULTI_SPACE.sub(" ", s).strip()
+    return s
+
+
 # Patterns to extract episode numbers from filenames, tried in order.
 _EP_PATTERNS = [
     re.compile(r"[Ss](\d+)[Ee](\d+)"),                # S01E05
@@ -57,36 +84,46 @@ def _store(key: str, value: dict) -> dict:
 # ---------- helpers ----------
 
 def _find_show_dir(title: str) -> Path | None:
-    """Find the best-matching show folder under /tv/."""
+    """Find the best-matching show folder under /tv/.
+
+    Uses a multi-tier strategy:
+      1. Exact case-insensitive match
+      2. Normalized match (strips punctuation, years, 'Staffel X')
+      3. Fuzzy match on normalized names (cutoff 0.6)
+    """
     tv = settings.tv_path
     if not tv.is_dir():
         return None
 
-    # Exact match first (case-insensitive)
-    lower = title.lower().strip()
-    dirs = {}
+    # Build indexes: lowercase -> Path  AND  normalized -> Path
+    dirs: dict[str, Path] = {}
+    norm_dirs: dict[str, Path] = {}
     try:
         for d in tv.iterdir():
             if d.is_dir():
                 dirs[d.name.lower()] = d
+                n = _normalize(d.name)
+                if n:
+                    norm_dirs[n] = d
     except OSError:
         return None
 
+    # Tier 1: exact case-insensitive
+    lower = title.lower().strip()
     if lower in dirs:
         return dirs[lower]
 
-    # Strip trailing "Staffel X" for matching
-    stripped = re.sub(r"\s*[Ss]taffel\s+\d+\s*$", "", title, flags=re.IGNORECASE).strip().lower()
-    if stripped and stripped in dirs:
-        return dirs[stripped]
+    # Tier 2: normalized exact match
+    norm_title = _normalize(title)
+    if norm_title and norm_title in norm_dirs:
+        return norm_dirs[norm_title]
 
-    # Fuzzy match
-    candidates = list(dirs.keys())
-    matches = get_close_matches(lower, candidates, n=1, cutoff=0.7)
-    if not matches and stripped:
-        matches = get_close_matches(stripped, candidates, n=1, cutoff=0.7)
-    if matches:
-        return dirs[matches[0]]
+    # Tier 3: fuzzy on normalized names (more lenient cutoff)
+    if norm_title:
+        norm_candidates = list(norm_dirs.keys())
+        matches = get_close_matches(norm_title, norm_candidates, n=1, cutoff=0.6)
+        if matches:
+            return norm_dirs[matches[0]]
 
     return None
 
@@ -110,7 +147,18 @@ def _find_season_dirs(show_dir: Path) -> dict[int, Path]:
 
 def _scan_episodes(folder: Path) -> list[int]:
     """Extract episode numbers from video files in a folder."""
-    episodes: set[int] = set()
+    return [ep for _, ep in _scan_episodes_with_season(folder)]
+
+
+def _scan_episodes_with_season(folder: Path) -> list[tuple[int | None, int]]:
+    """Extract (season, episode) pairs from video files in a folder.
+
+    Returns a list of (season_number_or_None, episode_number) tuples.
+    Season is extracted from filenames like S01E05; None when only an
+    episode number is found.
+    """
+    results: list[tuple[int | None, int]] = []
+    seen: set[tuple[int | None, int]] = set()
     try:
         for f in folder.iterdir():
             if not f.is_file():
@@ -121,14 +169,23 @@ def _scan_episodes(folder: Path) -> list[int]:
             for pat in _EP_PATTERNS:
                 m = pat.search(name)
                 if m:
-                    # Use last group (some patterns have season+episode groups)
-                    ep_num = int(m.group(m.lastindex or 1))
+                    if pat is _EP_PATTERNS[0]:
+                        # S01E05 pattern — both season and episode
+                        season = int(m.group(1))
+                        ep_num = int(m.group(2))
+                    else:
+                        season = None
+                        ep_num = int(m.group(m.lastindex or 1))
                     if 1 <= ep_num <= 999:
-                        episodes.add(ep_num)
+                        key = (season, ep_num)
+                        if key not in seen:
+                            seen.add(key)
+                            results.append(key)
                     break
     except OSError:
         pass
-    return sorted(episodes)
+    results.sort(key=lambda t: (t[0] or 0, t[1]))
+    return results
 
 
 def get_existing_episodes(title: str) -> dict[int, list[int]]:
@@ -140,16 +197,21 @@ def get_existing_episodes(title: str) -> dict[int, list[int]]:
     show_dir = _find_show_dir(title)
     if not show_dir:
         return {}
+
+    result: dict[int, set[int]] = {}
+
+    # Scan season subdirectories
     season_dirs = _find_season_dirs(show_dir)
-    if not season_dirs:
-        eps = _scan_episodes(show_dir)
-        return {1: eps} if eps else {}
-    result: dict[int, list[int]] = {}
     for num, path in season_dirs.items():
-        eps = _scan_episodes(path)
-        if eps:
-            result[num] = eps
-    return result
+        for _, ep in _scan_episodes_with_season(path):
+            result.setdefault(num, set()).add(ep)
+
+    # Also scan the show root for loose files (e.g. S02E03 not in a subfolder)
+    for season, ep in _scan_episodes_with_season(show_dir):
+        s = season if season is not None else 1
+        result.setdefault(s, set()).add(ep)
+
+    return {k: sorted(v) for k, v in sorted(result.items()) if v}
 
 
 # ---------- endpoints ----------
@@ -218,6 +280,7 @@ async def check_movie(
         return _store(cache_key, {"found": False})
 
     lower = title.lower().strip()
+    norm_title = _normalize(title)
 
     try:
         for f in movies.iterdir():
@@ -229,8 +292,15 @@ async def check_movie(
             # Check title match (with or without year)
             if lower in name_lower:
                 return _store(cache_key, {"found": True})
-            # Fuzzy: close enough?
-            matches = get_close_matches(lower, [name_lower], n=1, cutoff=0.75)
+            # Normalized match
+            norm_file = _normalize(f.stem)
+            if norm_title and norm_file and norm_title == norm_file:
+                return _store(cache_key, {"found": True})
+            # Fuzzy on normalized names
+            if norm_title and norm_file:
+                matches = get_close_matches(norm_title, [norm_file], n=1, cutoff=0.65)
+            else:
+                matches = get_close_matches(lower, [name_lower], n=1, cutoff=0.75)
             if matches:
                 return _store(cache_key, {"found": True})
     except OSError:
