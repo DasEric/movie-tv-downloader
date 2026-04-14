@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlmodel import select
 
+from app.api.library import get_existing_episodes
 from app.config import settings as env_settings
 from app.db import session_scope
 from app.models import (
@@ -425,6 +426,8 @@ async def _probe_season_watch(w: SeasonWatch) -> None:
         return
 
     already_done = w.enqueued_set()
+    on_disk = set(get_existing_episodes(w.title).get(w.season, []))
+    already_done = already_done | on_disk
     new_candidates = [ep for ep in episodes if ep not in already_done]
 
     if not new_candidates:
