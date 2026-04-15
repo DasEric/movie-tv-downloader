@@ -82,6 +82,48 @@ LANG_LABEL = {
     "en-sub": "Englisch",
 }
 
+# s.to serves show covers from its own CDN under a predictable URL pattern:
+#
+#   /media/images/channel/desktop/<slug>-<hash>?format=jpg
+#   /media/images/channel/2x-desktop/<slug>-<hash>?format=jpg   (retina)
+#
+# The img tag looks like this on a show page:
+#
+#   <img data-src="/media/images/channel/desktop/the-rookie-CeSLm4Rq?format=jpg"
+#        class="img-fluid w-100 loaded" alt="The Rookie" ...>
+#
+# Notice the class is "img-fluid w-100 loaded" — not "cover", "poster" or
+# "seriesCoverBox" — so the generic cover-class sniffer in _meta.py misses
+# it, and the fallback to og:image returns a different (wrong) show on
+# s.to. This regex matches the CDN path directly on either attribute so
+# we always pick the correct cover.
+_STO_COVER_URL_RE = re.compile(
+    r'\b(?:data-src|src)="'
+    r'(?P<url>/media/images/channel/(?:2x-)?desktop/[^"]+)"',
+    re.IGNORECASE,
+)
+
+
+def _extract_sto_poster(html: str, slug: str | None = None) -> str | None:
+    """Pull the show cover from s.to's CDN pattern.
+
+    When `slug` is provided we prefer matches whose URL contains it — that
+    way a show page that also embeds promo images for OTHER shows (e.g.
+    "related shows" strips) can't trick us into returning the wrong cover.
+    Falls back to the first match if nothing contains the slug.
+    """
+    if not html:
+        return None
+    first: str | None = None
+    for m in _STO_COVER_URL_RE.finditer(html):
+        url = m.group("url")
+        if first is None:
+            first = url
+        if slug and slug.lower() in url.lower():
+            return url
+    return first
+
+
 # Attribute-independent extraction: pick each attribute wherever it sits
 # inside the containing element.
 _PLAY_RE = re.compile(r'data-play-url="([^"]+)"')
@@ -133,7 +175,10 @@ class StoScraper(BaseScraper):
 
         base = _current_base()
         url = f"{base}/serie/stream/{slug}"
-        poster = absolutize(extract_poster(html), base)
+        poster = absolutize(
+            _extract_sto_poster(html, slug) or extract_poster(html),
+            base,
+        )
         title = extract_title(html, slug.replace("-", " ").title())
 
         return [
@@ -165,7 +210,10 @@ class StoScraper(BaseScraper):
         """One-shot fetch for the UI: poster + season list + title."""
         html = await _get_with_fallback(f"/serie/stream/{slug}")
         base = _current_base()
-        poster = absolutize(extract_poster(html), base)
+        poster = absolutize(
+            _extract_sto_poster(html, slug) or extract_poster(html),
+            base,
+        )
         seasons: set[int] = set()
         for m in re.finditer(r"/staffel-(\d+)", html):
             seasons.add(int(m.group(1)))
