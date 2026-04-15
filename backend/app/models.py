@@ -67,6 +67,14 @@ class QueueItem(SQLModel, table=True):
     attempts: int = 0
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
+    # --- discord bot context (filled when request originates from the bot) ---
+    discord_requester_id: Optional[str] = None
+    discord_guild_id: Optional[str] = None
+    discord_channel_id: Optional[str] = None
+    discord_owner_msg_id: Optional[str] = None
+    # "movie" | "full_series" | "new_season" | "season" — controls which embed
+    # template the completion notifier posts in the upload channel.
+    discord_notify_kind: Optional[str] = None
 
 
 class AppSetting(SQLModel, table=True):

@@ -46,7 +46,36 @@ async def init_db() -> None:
         await conn.exec_driver_sql("PRAGMA synchronous=NORMAL")
         await conn.exec_driver_sql("PRAGMA foreign_keys=ON")
         await conn.run_sync(SQLModel.metadata.create_all)
+
+        # Lightweight idempotent migrations for columns SQLModel's
+        # create_all() can't add to existing tables. Each entry is
+        # (table, column, SQL type). "duplicate column name" is the
+        # SQLite response for an already-applied migration — we swallow
+        # it. Any other error propagates.
+        for table, column, sql_type in _MIGRATIONS:
+            try:
+                await conn.exec_driver_sql(
+                    f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}"
+                )
+                log.info("db migration: added %s.%s", table, column)
+            except Exception as e:
+                msg = str(e).lower()
+                if "duplicate column" in msg or "already exists" in msg:
+                    continue
+                raise
     log.info("database initialised at %s", settings.db_url)
+
+
+# Additive migrations — list new columns added after initial schema freeze.
+# SQLModel.create_all() is a no-op on existing tables, so these run once
+# per column per database lifetime (idempotent on subsequent boots).
+_MIGRATIONS: list[tuple[str, str, str]] = [
+    ("queue_items", "discord_requester_id", "VARCHAR"),
+    ("queue_items", "discord_guild_id", "VARCHAR"),
+    ("queue_items", "discord_channel_id", "VARCHAR"),
+    ("queue_items", "discord_owner_msg_id", "VARCHAR"),
+    ("queue_items", "discord_notify_kind", "VARCHAR"),
+]
 
 
 @asynccontextmanager

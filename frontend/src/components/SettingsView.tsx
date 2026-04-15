@@ -7,7 +7,10 @@ const SECRET_KEYS = [
   "tmdb_api_key",
   "discord_webhook_url",
   "telegram_bot_token",
+  "discord_token",
 ] as const;
+
+type DiscordStatus = { running: boolean; error: string | null };
 
 export function SettingsView() {
   const { t } = useTranslation();
@@ -17,6 +20,7 @@ export function SettingsView() {
   const [secretSet, setSecretSet] = useState<Record<string, boolean>>({});
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [discordStatus, setDiscordStatus] = useState<DiscordStatus | null>(null);
 
   useEffect(() => {
     api
@@ -34,6 +38,27 @@ export function SettingsView() {
         setForm(cleaned);
       })
       .catch(() => {});
+  }, []);
+
+  // Poll discord bot status every 5s while the settings view is mounted.
+  useEffect(() => {
+    let cancelled = false;
+    const fetchStatus = async () => {
+      try {
+        const r = await fetch("/api/discord/status");
+        if (!r.ok) return;
+        const s = (await r.json()) as DiscordStatus;
+        if (!cancelled) setDiscordStatus(s);
+      } catch {
+        /* ignore */
+      }
+    };
+    fetchStatus();
+    const iv = setInterval(fetchStatus, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(iv);
+    };
   }, []);
 
   if (!form) return <div className="card">{t("common.loading")}</div>;
@@ -248,6 +273,161 @@ export function SettingsView() {
             }}
           >
             {t("settings.schedulerExplanation")}
+          </div>
+        </div>
+      </div>
+
+      <h3>
+        {t("settings.discord.section_title")}
+        {discordStatus && (
+          <span
+            className={
+              discordStatus.running
+                ? "tag completed"
+                : discordStatus.error
+                ? "tag failed"
+                : "tag"
+            }
+            style={{ marginLeft: 10, fontSize: 12 }}
+          >
+            {discordStatus.running
+              ? t("settings.discord.status_running")
+              : discordStatus.error
+              ? t("settings.discord.status_error")
+              : t("settings.discord.status_stopped")}
+          </span>
+        )}
+      </h3>
+
+      <div style={{ marginBottom: 14 }}>
+        <label>
+          <input
+            type="checkbox"
+            checked={!!form.discord_bot_enabled}
+            onChange={(e) => set("discord_bot_enabled", e.target.checked)}
+          />{" "}
+          {t("settings.discord.enable")}
+        </label>
+        <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4 }}>
+          {t("settings.discord.enable_hint")}
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 14 }}>
+        <label>{t("settings.discord.mode_label")}</label>
+        <div className="row" style={{ gap: 14, flexWrap: "wrap" }}>
+          <label style={{ fontWeight: "normal" }}>
+            <input
+              type="radio"
+              name="discord_mode"
+              value="standard"
+              disabled={!form.discord_bot_enabled}
+              checked={form.discord_mode === "standard"}
+              onChange={(e) => set("discord_mode", e.target.value)}
+            />{" "}
+            {t("settings.discord.mode_standard")}
+          </label>
+          <label style={{ fontWeight: "normal" }}>
+            <input
+              type="radio"
+              name="discord_mode"
+              value="advanced"
+              disabled={!form.discord_bot_enabled}
+              checked={form.discord_mode === "advanced"}
+              onChange={(e) => set("discord_mode", e.target.value)}
+            />{" "}
+            {t("settings.discord.mode_advanced")}
+          </label>
+        </div>
+        <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4 }}>
+          {form.discord_mode === "advanced"
+            ? t("settings.discord.mode_advanced_hint")
+            : t("settings.discord.mode_standard_hint")}
+        </div>
+      </div>
+
+      <div className="grid-2">
+        <div>
+          <label>
+            {t("settings.discord.token")}
+            {secretSet.discord_token && (
+              <span className="tag completed" style={{ marginLeft: 8 }}>
+                {t("settings.configured")}
+              </span>
+            )}
+          </label>
+          <input
+            type="password"
+            disabled={!form.discord_bot_enabled}
+            value={form.discord_token || ""}
+            onChange={(e) => set("discord_token", e.target.value)}
+            placeholder={
+              secretSet.discord_token
+                ? t("settings.leaveBlank")
+                : t("settings.discord.token_hint")
+            }
+            autoComplete="off"
+          />
+        </div>
+        <div>
+          <label>{t("settings.discord.owner_id")}</label>
+          <input
+            type="text"
+            disabled={!form.discord_bot_enabled}
+            value={form.discord_owner_id || ""}
+            onChange={(e) => set("discord_owner_id", e.target.value)}
+            placeholder="123456789012345678"
+          />
+        </div>
+        <div>
+          <label>{t("settings.discord.upload_channel_id")}</label>
+          <input
+            type="text"
+            disabled={!form.discord_bot_enabled}
+            value={form.discord_upload_channel_id || ""}
+            onChange={(e) => set("discord_upload_channel_id", e.target.value)}
+            placeholder="123456789012345678"
+          />
+        </div>
+        <div>
+          <label>{t("settings.discord.request_role_id")}</label>
+          <input
+            type="text"
+            disabled={!form.discord_bot_enabled}
+            value={form.discord_request_role_id || ""}
+            onChange={(e) => set("discord_request_role_id", e.target.value)}
+            placeholder="123456789012345678"
+          />
+          <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4 }}>
+            {t("settings.discord.request_role_hint")}
+          </div>
+        </div>
+        <div>
+          <label>{t("settings.discord.guild_id")}</label>
+          <input
+            type="text"
+            disabled={!form.discord_bot_enabled}
+            value={form.discord_guild_id || ""}
+            onChange={(e) => set("discord_guild_id", e.target.value)}
+            placeholder="123456789012345678"
+          />
+          <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4 }}>
+            {t("settings.discord.guild_hint")}
+          </div>
+        </div>
+        <div>
+          <label>{t("settings.discord.cloudflareFallback")}</label>
+          <select
+            value={form.cloudflare_fallback_enabled ? "yes" : "no"}
+            onChange={(e) =>
+              set("cloudflare_fallback_enabled", e.target.value === "yes")
+            }
+          >
+            <option value="yes">{t("common.yes")}</option>
+            <option value="no">{t("common.no")}</option>
+          </select>
+          <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4 }}>
+            {t("settings.discord.cloudflareFallbackHint")}
           </div>
         </div>
       </div>

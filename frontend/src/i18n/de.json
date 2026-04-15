@@ -177,7 +177,30 @@
     "masked": "•••••• (gesetzt)",
     "configured": "konfiguriert",
     "leaveBlank": "Leer lassen, um nicht zu ändern",
-    "tmdbHint": "Optional aber empfohlen — siehe README"
+    "tmdbHint": "Optional aber empfohlen — siehe README",
+    "discord": {
+      "section_title": "Discord-Bot",
+      "enable": "Bot aktivieren",
+      "enable_hint": "Startet den integrierten Discord-Bot, wenn ein Token gesetzt ist.",
+      "mode_label": "Modus",
+      "mode_standard": "Standard (Besitzer bestätigt)",
+      "mode_standard_hint": "Anfragen landen per DM beim Besitzer. Erst nach 'Annehmen' lädt der Bot.",
+      "mode_advanced": "Fortgeschritten (automatisch)",
+      "mode_advanced_hint": "Anfragen werden sofort geprüft und heruntergeladen. Der Besitzer wird nur informiert, wenn nichts gefunden wurde.",
+      "token": "Bot-Token",
+      "token_hint": "Von discord.com/developers/applications — niemals teilen.",
+      "owner_id": "Besitzer User-ID",
+      "upload_channel_id": "Upload-Channel-ID",
+      "request_role_id": "Anfrage-Rolle-ID (optional)",
+      "request_role_hint": "Nur Mitglieder mit dieser Rolle dürfen /film-anfrage und /serien-anfrage nutzen. Leer = alle.",
+      "guild_id": "Server-ID (optional)",
+      "guild_hint": "Leer lassen für Global-Sync (~1h). Server-ID für sofortige Sync.",
+      "status_running": "Aktiv",
+      "status_stopped": "Gestoppt",
+      "status_error": "Fehler",
+      "cloudflareFallback": "Cloudflare-Fallback (cloudscraper)",
+      "cloudflareFallbackHint": "Aktiviert einen zweiten HTTP-Pfad für 403/503-Cloudflare-Challenges."
+    }
   },
   "footer": {
     "credit": "Made with <3 by Eric (Discord: @daseric)"

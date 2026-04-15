@@ -32,6 +32,13 @@ services:
       DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      # Discord bot — first-boot bootstrap. Once saved via the UI the
+      # SQLite settings store takes precedence over these env vars.
+      DISCORD_TOKEN: ${DISCORD_TOKEN:-}
+      DISCORD_OWNER_ID: ${DISCORD_OWNER_ID:-}
+      DISCORD_UPLOAD_CHANNEL_ID: ${DISCORD_UPLOAD_CHANNEL_ID:-}
+      DISCORD_REQUEST_ROLE_ID: ${DISCORD_REQUEST_ROLE_ID:-}
+      DISCORD_GUILD_ID: ${DISCORD_GUILD_ID:-}
       PROXY_URL: ${PROXY_URL:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:

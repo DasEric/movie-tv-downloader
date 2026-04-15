@@ -54,6 +54,17 @@ class Settings(BaseSettings):
     telegram_bot_token: str | None = Field(None, alias="TELEGRAM_BOT_TOKEN")
     telegram_chat_id: str | None = Field(None, alias="TELEGRAM_CHAT_ID")
 
+    # --- discord bot (env fallbacks — UI overrides once persisted) ---
+    discord_token: str | None = Field(None, alias="DISCORD_TOKEN")
+    discord_owner_id: str | None = Field(None, alias="DISCORD_OWNER_ID")
+    discord_upload_channel_id: str | None = Field(
+        None, alias="DISCORD_UPLOAD_CHANNEL_ID"
+    )
+    discord_request_role_id: str | None = Field(
+        None, alias="DISCORD_REQUEST_ROLE_ID"
+    )
+    discord_guild_id: str | None = Field(None, alias="DISCORD_GUILD_ID")
+
     # --- networking ---
     proxy_url: str | None = Field(None, alias="PROXY_URL")
     user_agent: str = (

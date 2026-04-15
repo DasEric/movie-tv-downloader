@@ -26,6 +26,16 @@ DEFAULT_KEYS: dict[str, Any] = {
     "subtitle_languages": lambda: ["de", "en"],
     "auto_subtitles": lambda: True,
     "release_check_interval_min": lambda: 60,
+    # --- discord bot ---
+    "discord_bot_enabled": lambda: False,
+    "discord_mode": lambda: "standard",  # "standard" | "advanced"
+    "discord_token": lambda: env_settings.discord_token or "",
+    "discord_owner_id": lambda: env_settings.discord_owner_id or "",
+    "discord_upload_channel_id": lambda: env_settings.discord_upload_channel_id or "",
+    "discord_request_role_id": lambda: env_settings.discord_request_role_id or "",
+    "discord_guild_id": lambda: env_settings.discord_guild_id or "",
+    # --- cloudflare fallback ---
+    "cloudflare_fallback_enabled": lambda: True,
 }
 
 

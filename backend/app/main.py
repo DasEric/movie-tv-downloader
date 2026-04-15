@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import __version__
 from app.api import (
+    discord as discord_api,
     library,
     logs,
     queue,
@@ -37,9 +38,19 @@ async def lifespan(app: FastAPI):
     await init_db()
     await queue_manager.start()
     await scheduler.start()
+    # Discord bot — no-op when disabled or token missing.
+    from app.services.discord_bot import runner as discord_runner
+    try:
+        await discord_runner.start_if_enabled()
+    except Exception as e:
+        log.warning("discord bot start_if_enabled failed: %s", e)
     try:
         yield
     finally:
+        try:
+            await discord_runner.stop()
+        except Exception as e:
+            log.warning("discord bot stop failed: %s", e)
         await scheduler.stop()
         await queue_manager.stop()
         await close_client()
@@ -61,6 +72,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(discord_api.router)
 app.include_router(library.router)
 app.include_router(queue.router)
 app.include_router(search.router)

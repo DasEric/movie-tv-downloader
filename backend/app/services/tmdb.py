@@ -117,6 +117,53 @@ async def search_tv_with_year(title: str, year: int | None = None) -> list[dict]
     return [_map_tv(r) for r in data.get("results", [])[:15]]
 
 
+async def details_movie(movie_id: int) -> dict | None:
+    """Full movie details incl. title, overview, poster, release_date, rating."""
+    data = await _get(f"/movie/{movie_id}")
+    if not data:
+        return None
+    return {
+        "tmdb_id": data["id"],
+        "title": data.get("title") or data.get("original_title"),
+        "overview": data.get("overview"),
+        "release_date": _parse_date(data.get("release_date")),
+        "year": (data.get("release_date") or "0000")[:4],
+        "poster": (IMG + data["poster_path"]) if data.get("poster_path") else None,
+        "rating": data.get("vote_average"),
+    }
+
+
+async def details_tv(show_id: int) -> dict | None:
+    """Full TV details incl. name, overview, poster, first_air_date, rating,
+    and the full season list with episode counts. Used by the Discord bot
+    to determine the latest available season."""
+    data = await _get(f"/tv/{show_id}")
+    if not data:
+        return None
+    seasons = [
+        {
+            "season_number": s.get("season_number"),
+            "episode_count": s.get("episode_count"),
+            "air_date": _parse_date(s.get("air_date")),
+        }
+        for s in (data.get("seasons") or [])
+        # Skip "specials" (season 0) — scrapers don't align with TMDB's
+        # specials numbering, and the library scanner doesn't track them.
+        if s.get("season_number") and s["season_number"] > 0
+    ]
+    return {
+        "tmdb_id": data["id"],
+        "title": data.get("name") or data.get("original_name"),
+        "overview": data.get("overview"),
+        "first_air_date": _parse_date(data.get("first_air_date")),
+        "year": (data.get("first_air_date") or "0000")[:4],
+        "poster": (IMG + data["poster_path"]) if data.get("poster_path") else None,
+        "rating": data.get("vote_average"),
+        "seasons": seasons,
+        "latest_season": max((s["season_number"] for s in seasons), default=None),
+    }
+
+
 async def tv_episode(show_id: int, season: int, episode: int) -> dict | None:
     data = await _get(f"/tv/{show_id}/season/{season}/episode/{episode}")
     if not data:

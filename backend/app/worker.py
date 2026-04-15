@@ -166,6 +166,18 @@ async def process_item(item_id: int) -> None:
             f"{item.title}\n→ `{final_path}`",
             success=True,
         )
+
+        # Discord bot notification — only fires for items that originated
+        # from a /film-anfrage or /serien-anfrage. Silent no-op otherwise.
+        try:
+            from app.services.discord_bot import notify_completed
+
+            fresh = await queue_manager.get(item_id)
+            if fresh and fresh.discord_requester_id:
+                await notify_completed(fresh)
+        except Exception:
+            log.exception("discord notify_completed hook failed")
+
         log.info("✔ completed #%d: %s", item.id, final_path)
 
     except asyncio.CancelledError:
@@ -216,6 +228,15 @@ async def process_item(item_id: int) -> None:
             f"{(current.title if current else item_id)}\n{msg}",
             success=False,
         )
+
+        # Discord bot failure notification (same pattern as success path).
+        try:
+            from app.services.discord_bot import notify_failed
+
+            if current and current.discord_requester_id and not is_rate_limited:
+                await notify_failed(current, msg)
+        except Exception:
+            log.exception("discord notify_failed hook failed")
 
     finally:
         # Always remove the cancel flag so it doesn't leak across retries.

@@ -94,6 +94,42 @@ def _is_retriable(exc: Exception) -> bool:
     return False
 
 
+async def _cloudscraper_fallback(url: str, body: str, status: int) -> str | None:
+    """Try cloudscraper once if the response looks like a CF challenge and
+    the feature is enabled. Returns fresh body on success, None on any
+    failure (caller then re-raises the original error)."""
+    from app.services import settings_store
+    from app.services.http_fallback import (
+        fetch_via_cloudscraper,
+        looks_like_cloudflare_challenge,
+    )
+
+    if not looks_like_cloudflare_challenge(body, status):
+        return None
+    try:
+        enabled = await settings_store.get("cloudflare_fallback_enabled", True)
+    except Exception:
+        enabled = True
+    if not enabled:
+        return None
+    try:
+        text, code = await fetch_via_cloudscraper(
+            url,
+            headers={
+                "User-Agent": settings.user_agent,
+                **_BROWSER_HEADERS,
+            },
+            proxy=settings.proxy_url,
+        )
+        if 200 <= code < 300:
+            log.info("cloudscraper fallback succeeded for %s", url)
+            return text
+        log.info("cloudscraper fallback returned HTTP %d for %s", code, url)
+    except Exception as e:
+        log.warning("cloudscraper fallback failed for %s: %s", url, e)
+    return None
+
+
 async def get(url: str, *, check_captcha: bool = False, **kwargs) -> str:
     """
     Fetch a URL with automatic retry on transient network errors.
@@ -106,17 +142,31 @@ async def get(url: str, *, check_captcha: bool = False, **kwargs) -> str:
     Scrapers should call `raise_if_captcha` themselves from the failure
     path (when parsing yields zero providers) so challenge pages still
     surface a useful error message.
+
+    If curl_cffi returns a 403/503 whose body is a Cloudflare interstitial,
+    we make one last attempt via cloudscraper (thread executor) before
+    raising.
     """
     c = await get_client()
     last_err: Exception | None = None
     for attempt in range(_MAX_RETRIES):
         try:
             r = await c.get(url, **kwargs)
+            body = r.text
+            status = r.status_code
+            # Cloudflare fallback path — only when the response looks like
+            # a challenge. We don't raise_for_status first; we want the
+            # body to inspect.
+            if status in (403, 503):
+                fallback = await _cloudscraper_fallback(url, body, status)
+                if fallback is not None:
+                    if check_captcha:
+                        raise_if_captcha(fallback, 200, url)
+                    return fallback
             r.raise_for_status()
-            text = r.text
             if check_captcha:
-                raise_if_captcha(text, r.status_code, url)
-            return text
+                raise_if_captcha(body, status, url)
+            return body
         except Exception as e:
             last_err = e
             if attempt < _MAX_RETRIES - 1 and _is_retriable(e):
@@ -135,18 +185,32 @@ async def get_with_final_url(
     url: str, *, check_captcha: bool = False, **kwargs
 ) -> tuple[str, str]:
     """Return (body, final_url) following redirects. Captcha check opt-in.
-    Retries automatically on transient network errors."""
+    Retries automatically on transient network errors.
+
+    Note: when the cloudscraper fallback kicks in, we cannot report the
+    true final URL (cloudscraper doesn't expose it the same way curl_cffi
+    does), so we return the input URL as the "final" — callers that care
+    about redirect resolution should treat this as best-effort when a CF
+    challenge was hit.
+    """
     c = await get_client()
     kwargs.setdefault("allow_redirects", True)
     last_err: Exception | None = None
     for attempt in range(_MAX_RETRIES):
         try:
             r = await c.get(url, **kwargs)
+            body = r.text
+            status = r.status_code
+            if status in (403, 503):
+                fallback = await _cloudscraper_fallback(url, body, status)
+                if fallback is not None:
+                    if check_captcha:
+                        raise_if_captcha(fallback, 200, url)
+                    return fallback, url
             r.raise_for_status()
-            text = r.text
             if check_captcha:
-                raise_if_captcha(text, r.status_code, url)
-            return text, str(r.url)
+                raise_if_captcha(body, status, url)
+            return body, str(r.url)
         except Exception as e:
             last_err = e
             if attempt < _MAX_RETRIES - 1 and _is_retriable(e):

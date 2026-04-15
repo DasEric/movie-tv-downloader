@@ -177,7 +177,30 @@
     "masked": "•••••• (set)",
     "configured": "configured",
     "leaveBlank": "Leave blank to keep current value",
-    "tmdbHint": "Optional but recommended — see README"
+    "tmdbHint": "Optional but recommended — see README",
+    "discord": {
+      "section_title": "Discord Bot",
+      "enable": "Enable bot",
+      "enable_hint": "Starts the embedded Discord bot when a token is set.",
+      "mode_label": "Mode",
+      "mode_standard": "Standard (owner approves)",
+      "mode_standard_hint": "Requests DM the owner. The bot only downloads after 'Accept'.",
+      "mode_advanced": "Advanced (automatic)",
+      "mode_advanced_hint": "Requests are checked and downloaded immediately. The owner is only notified when nothing was found.",
+      "token": "Bot token",
+      "token_hint": "From discord.com/developers/applications — never share.",
+      "owner_id": "Owner user ID",
+      "upload_channel_id": "Upload channel ID",
+      "request_role_id": "Request role ID (optional)",
+      "request_role_hint": "Only members with this role can use /film-anfrage and /serien-anfrage. Empty = everyone.",
+      "guild_id": "Server ID (optional)",
+      "guild_hint": "Leave empty for global sync (~1h). Server ID syncs instantly.",
+      "status_running": "Running",
+      "status_stopped": "Stopped",
+      "status_error": "Error",
+      "cloudflareFallback": "Cloudflare fallback (cloudscraper)",
+      "cloudflareFallbackHint": "Enables a second HTTP path for 403/503 Cloudflare challenges."
+    }
   },
   "footer": {
     "credit": "Made with <3 by Eric (Discord: @daseric)"

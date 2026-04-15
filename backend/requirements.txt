@@ -36,3 +36,8 @@ apscheduler==3.10.4
 
 # --- subtitles (optional at runtime — import guarded) ---
 subliminal==2.2.1
+
+# --- discord bot (embedded, managed by services/discord_bot/runner.py) ---
+# cloudscraper is installed separately from the vendored /opt/cloudscraper
+# directory in the Dockerfile — do not add it here.
+discord.py==2.4.0

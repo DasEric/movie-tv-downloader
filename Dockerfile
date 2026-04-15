@@ -75,6 +75,13 @@ RUN pip install --upgrade pip \
     && pip install -r requirements.txt \
     && pip install --pre --upgrade yt-dlp
 
+# Vendored VeNoMouS/cloudscraper fork — used as a Cloudflare fallback by
+# services/http.py when curl_cffi hits a challenge page. Installed editable
+# so the source is available for debugging; the package name is still
+# `cloudscraper` at runtime.
+COPY cloudscraper /opt/cloudscraper
+RUN pip install --no-cache-dir -e /opt/cloudscraper
+
 # Backend source
 COPY backend/app ./app
 

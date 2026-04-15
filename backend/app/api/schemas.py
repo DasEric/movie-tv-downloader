@@ -68,6 +68,16 @@ class SettingsUpdateRequest(BaseModel):
     subtitle_languages: Optional[list[str]] = None
     auto_subtitles: Optional[bool] = None
     release_check_interval_min: Optional[int] = None
+    # --- discord bot ---
+    discord_bot_enabled: Optional[bool] = None
+    discord_mode: Optional[str] = None  # "standard" | "advanced"
+    discord_token: Optional[str] = None
+    discord_owner_id: Optional[str] = None
+    discord_upload_channel_id: Optional[str] = None
+    discord_request_role_id: Optional[str] = None
+    discord_guild_id: Optional[str] = None
+    # --- cloudflare fallback ---
+    cloudflare_fallback_enabled: Optional[bool] = None
 
 
 class SearchRequest(BaseModel):
