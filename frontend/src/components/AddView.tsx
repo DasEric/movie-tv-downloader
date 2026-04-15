@@ -30,6 +30,30 @@ export function AddView() {
   const [quality, setQuality] = useState("1080p");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  // Track whether the user has explicitly touched the language / quality
+  // dropdowns. While both flags are false we keep mirroring the server-side
+  // defaults whenever settings change; once the user picks a value we stop
+  // overwriting their choice.
+  const userTouchedLang = useRef(false);
+  const userTouchedQual = useRef(false);
+
+  // Seed language / quality from the persisted server-side defaults
+  // (Settings → default language / quality profile). Without this the
+  // "Add" page always shows 1080p + de regardless of what the user
+  // configured in Settings.
+  useEffect(() => {
+    api
+      .getSettings()
+      .then((s) => {
+        if (!userTouchedQual.current && s?.quality_profile) {
+          setQuality(s.quality_profile);
+        }
+        if (!userTouchedLang.current && s?.default_language) {
+          setLanguage(s.default_language);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Library state: what episodes/movies are already on disk
   const [librarySeasons, setLibrarySeasons] = useState<Record<string, number[]>>({});
@@ -419,7 +443,10 @@ export function AddView() {
           <label>{t("add.language")}</label>
           <select
             value={language}
-            onChange={(e) => setLanguage(e.target.value)}
+            onChange={(e) => {
+              userTouchedLang.current = true;
+              setLanguage(e.target.value);
+            }}
             disabled={languageLocked}
             title={
               languageLocked
@@ -440,7 +467,13 @@ export function AddView() {
         </div>
         <div>
           <label>{t("add.quality")}</label>
-          <select value={quality} onChange={(e) => setQuality(e.target.value)}>
+          <select
+            value={quality}
+            onChange={(e) => {
+              userTouchedQual.current = true;
+              setQuality(e.target.value);
+            }}
+          >
             <option>480p</option>
             <option>720p</option>
             <option>1080p</option>

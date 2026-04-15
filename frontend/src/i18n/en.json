@@ -64,7 +64,7 @@
     "language": "Language track",
     "quality": "Quality",
     "noResults": "No matches",
-    "languageHint": "Pick the language the video will be downloaded in. The UI language (top right) is independent.",
+    "languageHint": "Pick the language the video will be downloaded in. The UI language is independent.",
     "languageLockedHint": "Megakino only hosts German movies — language picker is disabled.",
     "watchSeasonHeading": "Auto-download new episodes",
     "watchSeasonHint": "Puts this season on a watchlist. When a new episode becomes available in the selected language, it's automatically added to the queue.",

@@ -64,7 +64,7 @@
     "language": "Sprachversion",
     "quality": "Qualität",
     "noResults": "Keine Treffer",
-    "languageHint": "Wähle, in welcher Sprache das Video heruntergeladen wird. Die UI-Sprache (oben rechts) ist davon unabhängig.",
+    "languageHint": "Wähle, in welcher Sprache das Video heruntergeladen wird. Die UI-Sprache ist davon unabhängig.",
     "languageLockedHint": "Megakino bietet nur deutsche Filme an — Sprachauswahl ist daher deaktiviert.",
     "watchSeasonHeading": "Neue Episoden automatisch herunterladen",
     "watchSeasonHint": "Setzt diese Staffel auf die Watchlist. Sobald eine neue Episode in der gewählten Sprache veröffentlicht wird, landet sie automatisch in der Warteschlange.",

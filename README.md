@@ -158,9 +158,9 @@ services:
       # and the "download when released" scheduler:
       TMDB_API_KEY: ""
       # Runtime tuning (all optional, shown with defaults):
-      CONCURRENCY: "3"
+      CONCURRENCY: "1"
       DEFAULT_LANGUAGE: "de"
-      QUALITY_PROFILE: "1080p"
+      QUALITY_PROFILE: "best"
       HOSTER_PRIORITY: "VOE,Vidmoly,Vidoza,Doodstream"
       # Optional Discord bot (leave blank to disable — you can also
       # configure all of this later from Settings → Discord bot):
@@ -307,9 +307,9 @@ you set nothing except the volume mounts.
 |---|---|---|
 | `TZ` | `Europe/Berlin` | Container timezone — respects `tzdata` |
 | `HOST_PORT` | `8080` | Host port (only used if you use the bundled `docker-compose.yml`) |
-| `CONCURRENCY` | `3` | Max simultaneous downloads |
+| `CONCURRENCY` | `1` | Max simultaneous downloads |
 | `DEFAULT_LANGUAGE` | `de` | UI default + TMDB locale (`de` / `en`) |
-| `QUALITY_PROFILE` | `1080p` | `480p` / `720p` / `1080p` / `1440p` / `4k` / `best` |
+| `QUALITY_PROFILE` | `best` | `480p` / `720p` / `1080p` / `1440p` / `4k` / `best` |
 | `HOSTER_PRIORITY` | `VOE,Vidmoly,Vidoza,Doodstream` | Fallback order (first hoster is tried first) |
 | `TMDB_API_KEY` | *(empty)* | **Recommended.** Enables release-date metadata & "download when released" |
 | `PROXY_URL` | *(empty)* | Optional SOCKS5/HTTP proxy (`socks5://host:1080`) |

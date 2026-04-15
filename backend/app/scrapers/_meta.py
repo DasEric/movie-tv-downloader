@@ -30,6 +30,18 @@ _COVER_IMG_RE = re.compile(
     r'<img\b[^>]*class="[^"]*(?:seriesCoverBox|cover|poster)[^"]*"[^>]*>',
     re.IGNORECASE,
 )
+# Matches the FIRST <img> inside a container (div/section/a) whose class
+# contains seriesCoverBox / cover / poster. s.to and aniworld put the
+# class on the container, not the img itself.
+_COVER_CONTAINER_RE = re.compile(
+    r'<(?:div|section|a|figure)\b[^>]*class="[^"]*(?:seriesCoverBox|cover|poster)[^"]*"[^>]*>'
+    r'(?P<inner>.*?)</(?:div|section|a|figure)>',
+    re.IGNORECASE | re.DOTALL,
+)
+_INNER_IMG_RE = re.compile(
+    r'<img\b[^>]*>',
+    re.IGNORECASE,
+)
 _GENERIC_IMG_SRC_RE = re.compile(
     r'<img\b[^>]*\bsrc="([^"]+(?:jpg|jpeg|png|webp))"', re.IGNORECASE
 )
@@ -105,29 +117,57 @@ def extract_jsonld_image(html: str) -> str | None:
 
 
 def extract_cover_img(html: str) -> str | None:
-    """Fall back to any <img class="…(cover|poster|seriesCoverBox)…">."""
+    """Find a show-specific cover image.
+
+    Two strategies, in order:
+      1. `<img class="…seriesCoverBox/cover/poster…">` — img carries the class
+      2. `<div class="seriesCoverBox">...<img>...</div>` — container carries
+         the class, img is inside (this is how s.to + aniworld mark up cover
+         boxes; without this the show poster is unreachable via CSS class).
+    """
     if not html:
         return None
     m = _COVER_IMG_RE.search(html)
-    if not m:
-        return None
-    tag = m.group(0)
-    attrs = _parse_attrs(tag)
-    return attrs.get("data-src") or attrs.get("src")
+    if m:
+        tag = m.group(0)
+        attrs = _parse_attrs(tag)
+        src = attrs.get("data-src") or attrs.get("src")
+        if src:
+            return src
+    for m in _COVER_CONTAINER_RE.finditer(html):
+        inner = m.group("inner")
+        img_m = _INNER_IMG_RE.search(inner)
+        if not img_m:
+            continue
+        attrs = _parse_attrs(img_m.group(0))
+        src = attrs.get("data-src") or attrs.get("src")
+        if src:
+            return src
+    return None
 
 
 def extract_poster(html: str) -> str | None:
     """
-    Multi-strategy poster extraction:
-      1. og:image (property or name attribute, either order)
-      2. JSON-LD `image` field
-      3. <img class="…cover/poster/seriesCoverBox…">
+    Multi-strategy poster extraction.
+
+    Show-specific cover images come FIRST, og:image only as a fallback. On
+    s.to and aniworld the og:image meta tag often points at the generic
+    site banner / logo rather than the actual show poster, so relying on
+    it first would return the wrong image. The show-specific
+    `<... class="seriesCoverBox">` container (or a directly-classed
+    `<img class="poster">`) is always the real cover when present.
+
+    Order:
+      1. Show-specific cover img (class="seriesCoverBox|cover|poster" on
+         the img itself OR on a wrapping div/section/a/figure)
+      2. og:image (property or name attribute, either order)
+      3. JSON-LD `image` field
       4. Any <img src="*.jpg"> in the page (last resort)
     """
     return (
-        extract_og_image(html)
+        extract_cover_img(html)
+        or extract_og_image(html)
         or extract_jsonld_image(html)
-        or extract_cover_img(html)
         or _first_generic_image(html)
     )
 
@@ -150,29 +190,52 @@ def absolutize(url: str | None, base: str) -> str | None:
 _STAFFEL_SUFFIX_RE = re.compile(
     r"\s*[-–—]?\s*[Ss]taffel\s+\d+\s*$", re.IGNORECASE
 )
+# aniworld frequently phrases the h1 as "Staffel 1 von <Show>" when the
+# landing page defaults to a specific season — strip the prefix so we
+# get just the show name.
+_STAFFEL_PREFIX_RE = re.compile(
+    r"^\s*(?:[Ss]taffel|[Ss]eason)\s+\d+\s+(?:von|of|aus)\s+",
+    re.IGNORECASE,
+)
+# Same pattern for episode-level titles: "Episode 5 von <Show>" etc.
+_EPISODE_PREFIX_RE = re.compile(
+    r"^\s*(?:[Ee]pisode|[Ff]olge)\s+\d+\s+(?:von|of|aus)\s+",
+    re.IGNORECASE,
+)
 
 
 def extract_title(html: str, fallback: str = "") -> str:
     """Extract the page title from <h1 itemprop="name"> or <title>.
 
-    Strips trailing "Staffel X" suffixes that s.to / aniworld sometimes
-    include in page titles — they're navigation context, not part of the
-    actual show name.
+    Strips common navigation-context prefixes/suffixes that s.to and
+    aniworld wrap around the actual show name:
+      - trailing "… Staffel X"
+      - leading  "Staffel X von …"  /  "Season X of …"
+      - leading  "Episode X von …" /  "Folge X von …"
     """
     if not html:
         return fallback
     title: str | None = None
+    # Prefer the itemprop h1 (structured markup)
     m = re.search(
         r'<h1[^>]*itemprop="name"[^>]*>([^<]+)</h1>', html, re.IGNORECASE
     )
     if m:
         title = m.group(1).strip()
+    # Fall back to any h1
+    if not title:
+        m = re.search(r"<h1[^>]*>([^<]+)</h1>", html, re.IGNORECASE)
+        if m:
+            title = m.group(1).strip()
     if not title:
         m = re.search(r"<title>([^<|]+)", html, re.IGNORECASE)
         if m:
             title = m.group(1).strip()
     if not title:
         return fallback
-    # Strip "Staffel X" suffix — always metadata, never part of the name.
-    title = _STAFFEL_SUFFIX_RE.sub("", title).strip()
-    return title or fallback
+    # Strip nav-context prefixes/suffixes — always metadata, never part of
+    # the actual name.
+    title = _STAFFEL_SUFFIX_RE.sub("", title)
+    title = _STAFFEL_PREFIX_RE.sub("", title)
+    title = _EPISODE_PREFIX_RE.sub("", title)
+    return title.strip() or fallback

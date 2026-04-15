@@ -40,9 +40,9 @@ class Settings(BaseSettings):
     # --- runtime ---
     log_level: str = Field("INFO", alias="LOG_LEVEL")
     timezone: str = Field("Europe/Berlin", alias="TZ")
-    concurrency: int = Field(3, alias="CONCURRENCY")
+    concurrency: int = Field(1, alias="CONCURRENCY")
     default_language: str = Field("de", alias="DEFAULT_LANGUAGE")
-    quality_profile: str = Field("1080p", alias="QUALITY_PROFILE")
+    quality_profile: str = Field("best", alias="QUALITY_PROFILE")
     hoster_priority: str = Field(
         "VOE,Vidmoly,Vidoza,Doodstream", alias="HOSTER_PRIORITY"
     )
