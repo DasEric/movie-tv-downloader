@@ -12,14 +12,85 @@ type Tab = "queue" | "add" | "watchlist" | "upcoming" | "logs" | "settings";
 
 const TAB_ORDER: Tab[] = ["queue", "add", "watchlist", "upcoming", "logs", "settings"];
 
-const TAB_GLYPH: Record<Tab, string> = {
-  queue: "◆",
-  add: "＋",
-  watchlist: "◉",
-  upcoming: "△",
-  logs: "≡",
-  settings: "✱",
-};
+// Simple inline icon set — single weight, consistent stroke
+function Icon({ name }: { name: Tab }) {
+  const common = {
+    width: 18,
+    height: 18,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.6,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+  };
+  switch (name) {
+    case "queue":
+      return (
+        <svg {...common}>
+          <path d="M4 6h16M4 12h16M4 18h10" />
+        </svg>
+      );
+    case "add":
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 8v8M8 12h8" />
+        </svg>
+      );
+    case "watchlist":
+      return (
+        <svg {...common}>
+          <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      );
+    case "upcoming":
+      return (
+        <svg {...common}>
+          <rect x="3" y="5" width="18" height="16" rx="2" />
+          <path d="M16 3v4M8 3v4M3 10h18" />
+        </svg>
+      );
+    case "logs":
+      return (
+        <svg {...common}>
+          <path d="M4 4h12l4 4v12H4z" />
+          <path d="M16 4v4h4" />
+          <path d="M8 13h8M8 17h5" />
+        </svg>
+      );
+    case "settings":
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h0a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+        </svg>
+      );
+  }
+}
+
+function Logo({ size = 32 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 64 64"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-label="H0melab Downloader"
+    >
+      <rect width="64" height="64" rx="14" fill="var(--brand-mark-bg)" />
+      <path
+        d="M32 14l14 8v20l-14 8-14-8V22z"
+        fill="none"
+        stroke="var(--brand-accent)"
+        strokeWidth="3"
+        strokeLinejoin="round"
+      />
+      <path d="M26 26v12l12-6z" fill="var(--brand-accent)" />
+    </svg>
+  );
+}
 
 export default function App() {
   const { t, i18n } = useTranslation();
@@ -29,8 +100,6 @@ export default function App() {
     (localStorage.getItem("h0melab.theme") as any) || "dark"
   );
   const [info, setInfo] = useState<any>(null);
-  const [clock, setClock] = useState<string>(() => new Date().toLocaleTimeString());
-  const [navCollapsed, setNavCollapsed] = useState(false);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -57,13 +126,7 @@ export default function App() {
       }
     });
 
-    const clockTimer = setInterval(
-      () => setClock(new Date().toLocaleTimeString()),
-      1000
-    );
-
     return () => {
-      clearInterval(clockTimer);
       try {
         ws.close();
       } catch {}
@@ -80,122 +143,98 @@ export default function App() {
   };
 
   return (
-    <div className={"app" + (navCollapsed ? " nav-collapsed" : "")}>
-      {/* Ambient background layers */}
-      <div className="bg-mesh" aria-hidden />
-      <div className="bg-grain" aria-hidden />
+    <div className="app">
+      <div className="bg-glow" aria-hidden />
 
-      {/* === SIDEBAR === */}
+      {/* ============ SIDEBAR ============ */}
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark">H0</div>
-          <div className="brand-wordmark">
-            <span className="brand-line-1">H<i>0</i>melab</span>
-            <span className="brand-line-2">// signal stream</span>
+          <Logo size={36} />
+          <div className="brand-text">
+            <span className="brand-name">
+              H<span className="brand-name-accent">0</span>melab
+            </span>
+            <span className="brand-sub">Downloader</span>
           </div>
         </div>
 
         <nav className="sidenav">
-          {TAB_ORDER.map((k, i) => (
+          {TAB_ORDER.map((k) => (
             <button
               key={k}
               className={"sidenav-item " + (tab === k ? "is-active" : "")}
               onClick={() => setTab(k)}
             >
-              <span className="sidenav-index">
-                {String(i + 1).padStart(2, "0")}
+              <span className="sidenav-icon">
+                <Icon name={k} />
               </span>
-              <span className="sidenav-glyph">{TAB_GLYPH[k]}</span>
               <span className="sidenav-label">{t(`nav.${k}`)}</span>
-              <span className="sidenav-bar" aria-hidden />
+              {k === "queue" && counts.running > 0 && (
+                <span className="sidenav-badge">{counts.running}</span>
+              )}
+              {k === "queue" && counts.running === 0 && counts.waiting > 0 && (
+                <span className="sidenav-badge dim">{counts.waiting}</span>
+              )}
             </button>
           ))}
         </nav>
 
         <div className="sidebar-foot">
-          <div className="mini-stats">
-            <div className="mini-stat">
-              <span className="mini-stat-val">{counts.running}</span>
-              <span className="mini-stat-lbl">RUN</span>
-            </div>
-            <div className="mini-stat">
-              <span className="mini-stat-val">{counts.waiting}</span>
-              <span className="mini-stat-lbl">WAIT</span>
-            </div>
-            <div className="mini-stat">
-              <span className="mini-stat-val">{counts.completed}</span>
-              <span className="mini-stat-lbl">DONE</span>
-            </div>
-          </div>
           <button
-            className="sidebar-toggle"
-            onClick={() => setNavCollapsed((p) => !p)}
-            aria-label="Toggle sidebar"
+            className="chip-btn"
+            onClick={() => setTheme((p) => (p === "dark" ? "light" : "dark"))}
+            title="Toggle theme"
+            aria-label="Toggle theme"
           >
-            {navCollapsed ? "»" : "«"}
+            {theme === "dark" ? (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="4" />
+                <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+              </svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
+              </svg>
+            )}
           </button>
+          <select
+            className="chip-select"
+            value={i18n.language.startsWith("de") ? "de" : "en"}
+            onChange={(e) => i18n.changeLanguage(e.target.value)}
+            aria-label={t("common.language")}
+          >
+            <option value="de">DE</option>
+            <option value="en">EN</option>
+          </select>
         </div>
       </aside>
 
-      {/* === MAIN COLUMN === */}
+      {/* ============ MAIN ============ */}
       <div className="stage">
-        {/* Top HUD bar */}
-        <header className="hud">
-          <div className="hud-left">
-            <span className="hud-dot" data-kind="live" />
-            <span className="hud-label">TRANSMISSION</span>
-            <span className="hud-sep">/</span>
-            <span className="hud-value">{t(`nav.${tab}`).toUpperCase()}</span>
+        <header className="topbar">
+          <div className="topbar-title">
+            <h1>{t(`nav.${tab}`)}</h1>
+            <span className="topbar-sub">
+              {tab === "queue" && t("queue.heading")}
+              {tab === "add" && t("add.heading")}
+              {tab === "watchlist" && t("watchlist.heading")}
+              {tab === "upcoming" && t("upcoming.heading")}
+              {tab === "logs" && t("logs.heading")}
+              {tab === "settings" && t("settings.heading")}
+            </span>
           </div>
 
-          <div className="hud-center">
-            <span className="hud-chip">
-              <em>{counts.running}</em> running
-            </span>
-            <span className="hud-chip">
-              <em>{counts.waiting}</em> queued
-            </span>
-            <span className="hud-chip done">
-              <em>{counts.completed}</em> done
-            </span>
+          <div className="topbar-stats">
+            <Stat label={t("queue.running", { count: counts.running })} value={counts.running} tone={counts.running > 0 ? "live" : "muted"} />
+            <Stat label={t("queue.waiting", { count: counts.waiting })} value={counts.waiting} tone="muted" />
+            <Stat label={t("queue.completed", { count: counts.completed })} value={counts.completed} tone="good" />
             {counts.failed > 0 && (
-              <span className="hud-chip fail">
-                <em>{counts.failed}</em> failed
-              </span>
+              <Stat label={t("queue.failed", { count: counts.failed })} value={counts.failed} tone="bad" />
             )}
-          </div>
-
-          <div className="hud-right">
-            <span className="hud-clock">{clock}</span>
-            <select
-              className="hud-select"
-              value={i18n.language.startsWith("de") ? "de" : "en"}
-              onChange={(e) => i18n.changeLanguage(e.target.value)}
-              aria-label={t("common.language")}
-            >
-              <option value="de">DE</option>
-              <option value="en">EN</option>
-            </select>
-            <button
-              className="hud-theme"
-              onClick={() => setTheme((p) => (p === "dark" ? "light" : "dark"))}
-              title="Toggle theme"
-            >
-              {theme === "dark" ? "☀" : "☾"}
-            </button>
           </div>
         </header>
 
-        {/* Content */}
         <main>
-          <div className="page-head">
-            <span className="page-kicker">
-              SECTION {String(TAB_ORDER.indexOf(tab) + 1).padStart(2, "0")}
-              <span className="page-kicker-bar" />
-            </span>
-            <h1 className="page-title">{t(`nav.${tab}`)}</h1>
-          </div>
-
           {tab === "queue" && <QueueView items={items} counts={counts} />}
           {tab === "add" && <AddView />}
           {tab === "watchlist" && <WatchlistView />}
@@ -206,14 +245,26 @@ export default function App() {
           {tab === "settings" && <SettingsView />}
         </main>
 
-        {info?.homelab_credit && (
-          <footer>
-            <span className="foot-tick">◆</span>
-            {t("footer.credit")}
-            <span className="foot-tick">◆</span>
-          </footer>
-        )}
+        {info?.homelab_credit && <footer>{t("footer.credit")}</footer>}
       </div>
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "live" | "muted" | "good" | "bad";
+}) {
+  return (
+    <div className={`stat stat-${tone}`}>
+      <span className="stat-dot" />
+      <span className="stat-value">{value}</span>
+      <span className="stat-label">{label.replace(/\d+\s*/, "").trim()}</span>
     </div>
   );
 }
