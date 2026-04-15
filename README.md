@@ -3,7 +3,8 @@
 > **Self-hosted Plex/Jellyfin/etc. auto-downloader** for `s.to`, `aniworld.to` and
 > `megakino` — runs in **one** single Docker container. Drop it on your
 > machine, point two volumes at your Plex libraries, and every item you add
-> via the Web-UI ends up in the right folder with Plex-correct naming.
+> via the Web-UI (or request via Discord) ends up in the right folder with
+> Plex-correct naming.
 
 ```
 Docker Hub:  daseric/movie-tv-downloader
@@ -32,7 +33,8 @@ You open the Web-UI → search for a show or movie → click → pick episodes
 → **Add to queue**. The container then:
 
 1. **Scrapes** the source site (s.to for series, aniworld.to for anime,
-   megakino for movies, megakino is for german i will add support for english sites soon)
+   megakino for movies — megakino is German-only, English movie sources
+   are planned)
 2. **Walks the hoster list** in your configured priority order
    (VOE → Vidmoly → Vidoza → Doodstream) until one yields a playable stream
 3. **Downloads** the stream with `yt-dlp` (fragmented HLS → chunked,
@@ -43,52 +45,93 @@ You open the Web-UI → search for a show or movie → click → pick episodes
 
    ```
    /movies/Movie Title (2024).mp4
-   /tv/Show Name/Season 01/Show_Name_S01E01.mp4
+   /tv/Show Name/S01/Show_Name_S01E01.mp4
    ```
 
 6. **Fetches subtitles** (Subliminal, DE/EN by default — optional)
-7. **Notifies** you via Discord and/or Telegram webhook (optional)
+7. **Notifies** you via Discord webhook and/or Telegram (optional)
 8. **Pre-schedules** movies for automatic download on release date via
    the **Upcoming** tab (requires a free TMDB API key)
 9. **Auto-queues new episodes** of an ongoing season in your chosen
    language via the **Watchlist** tab (pure site-based, no TMDB
    needed)
+10. **Accepts Discord slash-command requests** from your server members via
+    the embedded Discord bot — two flows (standard approval vs advanced
+    auto-enqueue), per-role permission, optional manual-upload channel
 
 Everything happens inside **one** container — no Redis, no Celery, no
 FlareSolverr, no headless browser. FastAPI hosts both the REST API and
 the React frontend; `curl_cffi` bypasses Cloudflare by impersonating a
-real Chrome TLS fingerprint; `yt-dlp` handles the actual download;
-`ffmpeg` does the post-processing.
+real Chrome TLS fingerprint (with an optional `cloudscraper` fallback);
+`yt-dlp` handles the actual download; `ffmpeg` does the post-processing;
+the embedded `discord.py` bot runs in the same event loop.
 
 ---
 
 ## Features at a glance
 
+### Core
 - 🎬 Three sources in one UI: `s.to` (series), `aniworld.to` (anime), `megakino` (movies, German only)
 - 🔁 Hoster fallback chain (VOE → Vidmoly → Vidoza → Doodstream)
 - 🎞 Always outputs **MP4** (H.264/AAC) — no `.ts` or `.mkv` leftovers
-- 📂 Plex-conformant paths: `Title (Year).mp4` / `Show/Season XX/Show_SXXEYY.mp4`
+- 📂 Plex-conformant paths: `Title (Year).mp4` / `Show/S01/Show_S01E01.mp4`
 - 📺 Posters pulled directly from the source HTML (no TMDB required)
 - 🗂 Full queue management — pause/resume/retry/reorder/delete/concurrency
-- ⏹ **Bulk queue controls** — pause-all / resume-all / stop-all
+- ⏹ **Bulk queue controls** — pause-all / resume-all / stop-all / retry-all / clear-completed
+- ⏹ **Real download cancellation** — hitting Delete on an in-flight item
+  actually stops yt-dlp mid-fragment, not just the coroutine
+
+### Automation
 - 🔔 **Season Watchlist** — mark a season as "watch for new episodes" in a
   specific language; new episodes are auto-queued the moment the
-  language-specific version goes live on the site
+  language-specific version goes live on the site. **Check now** button
+  on each entry to probe immediately.
 - 🎯 **Upcoming tab** — browse TMDB's upcoming movies/shows, click "Watch"
   on an unreleased title and the scheduler pulls it the second it hits
   megakino / s.to / aniworld in your chosen language
+- ⏱ Runtime-configurable release-check interval (no container restart
+  needed when you change it)
+
+### Discord bot (embedded, optional)
+- 🤖 **Slash commands** — `/film-anfrage` and `/serien-anfrage` let server
+  members request content directly from Discord
+- 🎚 **Two operating modes**
+  - **Standard**: every request DMs the owner for approval (Annehmen /
+    Ablehnen buttons). Nothing queues without a human in the loop.
+  - **Advanced**: requests that resolve cleanly enqueue automatically.
+    Only the not-found / manual-upload cases DM the owner.
+- 👥 **Role gating** — restrict who can use the commands via a Discord
+  role ID (empty = everyone)
+- 📤 **Manual upload channel** — when a request has no working source,
+  the owner can drop a file in the configured channel and the bot wires
+  it into the library
+- ⚡ **Instant guild sync** — set a `guild_id` and commands appear
+  instantly on your server (otherwise global sync takes up to an hour)
+- ✅ **Live status badge** on the Settings page shows `running` /
+  `error` / `stopped` in real time
+
+### Plumbing
 - 🌐 **Per-item language picker** — `GerDub` / `GerSub` / `EngDub` / `EngSub`
   (per queue item, independent of the UI language)
 - 📡 Live updates via WebSocket (progress, speed, ETA, hoster, logs)
 - 🌐 i18n — German & English UI, browser auto-detect + manual switcher
 - 🌙 Dark/Light mode toggle
-- 🔔 Discord & Telegram webhook notifications
-- 📝 Auto-subtitle download via Subliminal (optional)
+- 🔔 Discord webhook + Telegram bot notifications (in addition to the
+  full Discord bot above)
+- 📝 Auto-subtitle download via Subliminal (optional, language list
+  configurable)
 - 🔀 Dynamic Megakino domain resolution via community domain tracker
-- 🛡 Cloudflare bypass without a headless browser (`curl_cffi` Chrome impersonation)
+- 🛡 **Cloudflare bypass** without a headless browser
+  (`curl_cffi` Chrome impersonation by default, with an opt-in
+  `cloudscraper` fallback toggle for the rare stubborn challenges)
 - 🌀 Optional SOCKS5 / HTTP proxy support
-- ⏹ **Real download cancellation** — hitting Delete on an in-flight item
-  actually stops yt-dlp mid-fragment, not just the coroutine
+
+### UI
+- 🎨 Editorial/tactical redesign — sidebar navigation with numbered
+  sections, live HUD status bar, corner-bracket cards, Space Grotesk
+  + IBM Plex Mono + Instrument Serif typography
+- 📊 Live "HUD" showing running / queued / completed / failed counters
+  at all times
 
 ---
 
@@ -119,6 +162,13 @@ services:
       DEFAULT_LANGUAGE: "de"
       QUALITY_PROFILE: "1080p"
       HOSTER_PRIORITY: "VOE,Vidmoly,Vidoza,Doodstream"
+      # Optional Discord bot (leave blank to disable — you can also
+      # configure all of this later from Settings → Discord bot):
+      DISCORD_TOKEN: ""
+      DISCORD_OWNER_ID: ""
+      DISCORD_UPLOAD_CHANNEL_ID: ""
+      DISCORD_REQUEST_ROLE_ID: ""
+      DISCORD_GUILD_ID: ""
     volumes:
       # ==== THE IMPORTANT PART ====
       # Left side  = host path (where Plex already scans)
@@ -179,7 +229,7 @@ mount your host folders to these **exact** container paths:
 | Container path (fixed — do NOT rename) | What goes here | Where to point the host side |
 |---|---|---|
 | `/movies` | All finished movies (`Title (Year).mp4`) | Your Plex **Movies** library folder |
-| `/tv` | Series (`Show/Season XX/Show_SXXEYY.mp4`) | Your Plex **TV Shows** library folder |
+| `/tv` | Series (`Show/S01/Show_S01E01.mp4`) | Your Plex **TV Shows** library folder |
 | `/config` | SQLite DB + persisted Megakino domain | A small, persistent local folder |
 | `/tmp/h0melab` | Raw downloads (auto-cleaned after conversion) | A local folder on fast storage |
 
@@ -251,6 +301,8 @@ rebuild. You **must** mount the host paths directly to `/movies` and
 All of these are optional — the container runs with sane defaults if
 you set nothing except the volume mounts.
 
+### Core
+
 | Variable | Default | Description |
 |---|---|---|
 | `TZ` | `Europe/Berlin` | Container timezone — respects `tzdata` |
@@ -260,12 +312,27 @@ you set nothing except the volume mounts.
 | `QUALITY_PROFILE` | `1080p` | `480p` / `720p` / `1080p` / `1440p` / `4k` / `best` |
 | `HOSTER_PRIORITY` | `VOE,Vidmoly,Vidoza,Doodstream` | Fallback order (first hoster is tried first) |
 | `TMDB_API_KEY` | *(empty)* | **Recommended.** Enables release-date metadata & "download when released" |
-| `DISCORD_WEBHOOK_URL` | *(empty)* | Discord channel webhook for success/failure notifications |
-| `TELEGRAM_BOT_TOKEN` | *(empty)* | Telegram bot token (from @BotFather) |
-| `TELEGRAM_CHAT_ID` | *(empty)* | Telegram chat-id to send notifications to |
 | `PROXY_URL` | *(empty)* | Optional SOCKS5/HTTP proxy (`socks5://host:1080`) |
 | `LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
 | `HOMELAB_CREDIT` | `true` | Show/hide the footer credit line |
+
+### Notifications
+
+| Variable | Default | Description |
+|---|---|---|
+| `DISCORD_WEBHOOK_URL` | *(empty)* | Discord channel webhook for one-way completion notifications |
+| `TELEGRAM_BOT_TOKEN` | *(empty)* | Telegram bot token (from @BotFather) |
+| `TELEGRAM_CHAT_ID` | *(empty)* | Telegram chat-id to send notifications to |
+
+### Discord bot (optional — two-way slash-command requests)
+
+| Variable | Default | Description |
+|---|---|---|
+| `DISCORD_TOKEN` | *(empty)* | Bot token from the Discord developer portal |
+| `DISCORD_OWNER_ID` | *(empty)* | Discord user ID that receives approval DMs |
+| `DISCORD_UPLOAD_CHANNEL_ID` | *(empty)* | Channel ID where owners drop manually-uploaded files |
+| `DISCORD_REQUEST_ROLE_ID` | *(empty)* | Role ID allowed to use the request commands (blank = everyone) |
+| `DISCORD_GUILD_ID` | *(empty)* | Guild ID for instant slash-command sync (blank = global, ~1h to propagate) |
 
 You can change **all** of these later from the Settings tab in the UI.
 UI changes are persisted to SQLite and override the env-var values.
@@ -279,7 +346,7 @@ anyway — but **strongly** recommended for release-date metadata and the
 1. Sign up → <https://www.themoviedb.org/signup>
 2. Go to <https://www.themoviedb.org/settings/api>
 3. Copy the **"API Read Access Token (v3)"**
-4. Paste it into `TMDB_API_KEY` (env var) or into *Settings → API-Schlüssel* in the UI
+4. Paste it into `TMDB_API_KEY` (env var) or into *Settings → API keys* in the UI
 
 ---
 
@@ -292,6 +359,8 @@ anyway — but **strongly** recommended for release-date metadata and the
 │   ├── /api/queue       Queue CRUD + bulk pause/resume/stop  │
 │   ├── /api/watchlist   Season Watchlist CRUD                │
 │   ├── /api/upcoming    TMDB upcoming + "watch for release"  │
+│   ├── /api/library     Disk-state probes (already on disk?) │
+│   ├── /api/discord     Bot live status                      │
 │   ├── /api/ws/*        WebSocket (progress + logs)          │
 │   └── /                Built React frontend (6 tabs)        │
 │                                                             │
@@ -304,7 +373,7 @@ anyway — but **strongly** recommended for release-date metadata and the
 │       4. ffmpeg → H.264/AAC MP4                             │
 │       5. Move → /movies or /tv with Plex naming             │
 │       6. Subliminal (DE/EN subs)                            │
-│       7. Discord/Telegram notify                            │
+│       7. Discord webhook / Telegram / Discord-bot DM        │
 │                                                             │
 │   APScheduler (runtime-reconfigurable interval)             │
 │   ├── Upcoming  → search megakino / s.to / aniworld for     │
@@ -312,7 +381,14 @@ anyway — but **strongly** recommended for release-date metadata and the
 │   └── Watchlist → per-episode language probe                │
 │                   (spawns queue items when lang appears)    │
 │                                                             │
-│   curl_cffi — Chrome TLS fingerprint, Cloudflare bypass     │
+│   Discord bot (discord.py, same event loop, supervised)     │
+│   ├── /film-anfrage    → TMDB pick → decide → enqueue/ask   │
+│   ├── /serien-anfrage  → TMDB pick → decide → enqueue/ask   │
+│   └── Mode: standard (owner-approved) | advanced (auto)     │
+│                                                             │
+│   HTTP stack                                                │
+│   ├── curl_cffi — Chrome TLS fingerprint (primary)          │
+│   └── cloudscraper — optional fallback on CF interstitial   │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -322,23 +398,32 @@ Why one container works:
 - **No Redis** — an `asyncio.Semaphore` bounds concurrency, SQLite
   persists the queue
 - **No FlareSolverr** — `curl_cffi`'s Chrome-TLS impersonation sails
-  through Cloudflare's Turnstile on all three sites
+  through Cloudflare's Turnstile on all three sites; the opt-in
+  `cloudscraper` fallback handles the stubborn edge cases
 - **No Celery worker** — the queue runs in the same event loop as the
   API, interrupted items are re-queued on startup
+- **No separate bot process** — `discord.py` runs in the same event
+  loop, supervised by an idempotent reconciler that restarts it when
+  the token changes
 
 ---
 
 ## Using the UI
 
 The web interface has six tabs: **Queue**, **Add**, **Watchlist**,
-**Upcoming**, **Logs**, **Settings**.
+**Upcoming**, **Logs**, **Settings** — navigated via the left sidebar.
+The top HUD bar shows a live status line (section name + running /
+queued / completed / failed counters + clock).
 
 ### Add tab — manual download
 
 Pick a source → type the title **or paste a URL** from the source site
 (e.g. `https://s.to/serie/stream/the-rookie`) → press **Search**.
 
-You'll see a grid of result cards with posters. Click one:
+You'll see a grid of result cards with posters. Cards show a
+**download-status badge** in the bottom-right corner if the title (or
+some episodes of it) are already on disk — green tick = complete,
+yellow minus = partial. Click a card:
 
 - **For a movie** (megakino) → the "Add Movie" button appears on the
   card → click it → it lands in the queue
@@ -346,6 +431,12 @@ You'll see a grid of result cards with posters. Click one:
   below with the poster and title → pick a season → pick episodes →
   **Add selected** / **Add whole season** / **Auto-download new episodes**
   (the last one puts the season on the Watchlist, see below)
+
+Episodes already on disk are marked with a green border and a ✓ in the
+episode grid — you can still re-add them if you want a re-download.
+Episodes not available in your chosen language are greyed out /
+struck through; clicking one prompts you to add the season to the
+Watchlist instead.
 
 ### Language handling
 
@@ -375,7 +466,7 @@ Each queue item shows:
 - Current hoster being tried
 - Per-item actions: **pause** / **resume** / **retry** (for failed items) / **delete**
 
-Above the list, three **bulk controls**:
+Above the list, five **bulk controls**:
 
 - **⏸ Pause all** — pauses every running/queued item. In-flight downloads
   are properly aborted at the next fragment boundary (not just the
@@ -383,6 +474,14 @@ Above the list, three **bulk controls**:
 - **▶ Resume all** — flips every paused item back to queued.
 - **⏹ Stop all** — same as pause-all but with a confirm dialog. Items
   stay in the `paused` state so you can resume later.
+- **Retry all** — retries every failed or rate-limited item in one click.
+- **Clear completed** — removes all successfully-completed items from
+  the list (the files stay on disk, of course).
+
+**Rate-limited items** (e.g. `[RATE_LIMITED]` prefix from s.to throttle)
+are flagged with a yellow warning tag and a direct "Open in browser"
+link so you can solve the site-side challenge manually, then click
+**Retry**.
 
 **Delete behaviour** — if you hit Delete on an item that's currently
 downloading, yt-dlp is signalled to abort at the next fragment boundary
@@ -424,7 +523,7 @@ Use case: *"Avatar: The Way of Water 2 has a release date of Dec 2027,
 and I want to download it in English the moment it hits megakino."*
 
 Requires a **TMDB API key** (if you haven't set one yet the tab shows a
-one-click link to the Settings tab).
+hint to the Settings tab).
 
 The tab has two sections:
 
@@ -463,20 +562,101 @@ for "every six hours", etc. There's no upper or lower limit other than
 ### Live logs
 
 The **Logs** tab streams everything happening in the backend in real
-time, with level filtering. Useful for debugging scraper failures,
-hoster issues, or seeing exactly what the scheduler is doing
-("checked 2026-04-11 14:30 — no new episodes in de" etc.).
+time, with level filtering (All / Info / Warn / Error). Useful for
+debugging scraper failures, hoster issues, or seeing exactly what the
+scheduler is doing (*"checked 2026-04-11 14:30 — no new episodes in de"*
+etc.).
 
 ### Settings
 
 Everything the env vars set is also editable at runtime from the
-Settings tab. API keys are stored server-side and never sent back to
-the UI — you only see a "configured" badge next to the field. Relevant
-settings for the new features:
+Settings tab. API keys and bot tokens are stored server-side and never
+sent back to the UI — you only see a **"configured"** badge next to the
+field. Key sections:
 
-- **Release check (minutes)** — drives both Watchlist and Upcoming
-- **TMDB API key** — required for the Upcoming tab
-- **Default language** — pre-fills the language dropdown in the Add tab
+- **General** — concurrency, default language, quality profile, hoster
+  priority
+- **API keys** — TMDB, Discord webhook, Telegram bot + chat ID, SOCKS5/HTTP
+  proxy
+- **Scheduler** — release check interval (drives Watchlist + Upcoming)
+- **Discord bot** — full bot configuration (see the dedicated section
+  below)
+- **Subtitles** — toggle auto-subs on/off, configure the language list
+  (comma-separated, e.g. `de, en`)
+
+---
+
+## The Discord bot
+
+The embedded Discord bot lets your server members request content
+directly via slash commands. It lives in the same container, runs in
+the same event loop as FastAPI, and is supervised by a reconciler that
+starts / stops / restarts it whenever the relevant settings change —
+no restart required.
+
+### Setup (5 minutes)
+
+1. Go to <https://discord.com/developers/applications> → *New Application*
+2. Sidebar → **Bot** → *Reset Token* → copy it
+3. **Privileged Gateway Intents** → enable *Message Content Intent*
+4. Sidebar → **Installation** → *OAuth2 URL* → scopes `bot` +
+   `applications.commands` → invite it to your server
+5. In the UI → *Settings → Discord bot*:
+   - Tick **Enable bot**
+   - Paste the token
+   - Paste your own Discord user ID into **Owner ID** (right-click your
+     name in Discord with Developer Mode on → Copy ID)
+   - **Guild ID** → paste your server ID for instant command sync
+     (leave empty for global sync, which takes up to an hour)
+   - **Upload channel ID** → a private channel where you'll drop
+     manually-uploaded files for titles not found on any source
+   - **Request role ID** (optional) → restrict who can use the commands
+6. Save — the status badge flips to **running** within ~2 seconds
+
+### Commands
+
+| Command | What it does |
+|---|---|
+| `/film-anfrage` | Request a movie by title. Bot searches TMDB, shows a picker of results, user confirms. |
+| `/serien-anfrage` | Request a series by title — same flow, plus season picker. |
+
+### Standard vs Advanced mode
+
+Both modes start the same: user picks a TMDB result → confirms details.
+From there:
+
+- **Standard** (default, recommended for open servers):
+  - Every request DMs the owner with an **Annehmen / Ablehnen**
+    (Accept / Decline) button pair and the full TMDB details
+  - Clicking **Annehmen** re-runs the resolution pipeline, finds the
+    best source, and enqueues
+  - If the pipeline comes up empty (title not on any source), the
+    buttons switch to a **manual upload** view so the owner can drop
+    the file in the upload channel
+- **Advanced** (hands-off for trusted servers):
+  - Requests that resolve cleanly on megakino / s.to / aniworld in the
+    requested language **enqueue immediately** — the user gets a DM
+    confirming success
+  - Requests that hit the *not found* branch still DM the owner with
+    the manual-upload view (you can't auto-magic a title that doesn't
+    exist on any source)
+  - Requests for content **already complete on disk** short-circuit
+    with a friendly "already available" DM to the user
+
+### Cloudflare fallback toggle
+
+On the Discord bot settings card there's a **"Cloudflare fallback
+enabled"** switch (default: yes). This controls whether the backend is
+allowed to fall back to `cloudscraper` when `curl_cffi` hits a "Just
+a moment…" interstitial. Leave it on unless you've configured a proxy
+that handles CF itself.
+
+### Live status badge
+
+Next to the *Discord bot* section header, a tag shows the real-time bot
+state: **running** (green), **error** (red) with the failure reason in
+the tooltip, or **stopped** (grey). Polled every 5 seconds from
+`/api/discord/status`.
 
 ---
 
@@ -496,8 +676,13 @@ The folder and file naming scheme matches Plex's default scanner:
 
 ```
 /movies/The Matrix (1999).mp4
-/tv/The Rookie/Season 08/The_Rookie_S08E01.mp4
+/tv/The Rookie/S08/The_Rookie_S08E01.mp4
 ```
+
+> **Season folder convention**: short form `S08` (not `Season 08`).
+> Plex, Jellyfin, Emby and the `TheTVDB` / `TheMovieDB` agents all
+> accept this style — it keeps the paths terse and matches the
+> filename stem.
 
 ---
 
@@ -525,9 +710,12 @@ Happens sometimes for the very newest episodes (hosters haven't uploaded
 yet). Click **Retry** on the item in a few hours.
 
 ### "Cloudflare / captcha challenge"
-`curl_cffi`'s Chrome impersonation is *usually* enough, but s.to
-occasionally throws an actual Turnstile modal. Wait 10-15 minutes and
-retry. If it persists, try setting `PROXY_URL` to a residential proxy.
+`curl_cffi`'s Chrome impersonation is *usually* enough. If you see
+persistent 403s with "Just a moment…" in the body, make sure
+**Settings → Discord bot → Cloudflare fallback** is on (default: yes)
+— that lets the backend retry the request via `cloudscraper`. If even
+that fails, wait 10-15 minutes and retry, or set `PROXY_URL` to a
+residential proxy.
 
 ### No posters for series
 Make sure you're on the latest image. Older builds had a regex bug that
@@ -573,6 +761,24 @@ job is scheduled. Default is 60. Also verify the scheduler actually
 started — look for `scheduler started (release check every 60m, tz=…)`
 in the Logs tab.
 
+### The Discord bot won't start
+Check **Settings → Discord bot → status badge**:
+
+- **error** → hover the tooltip or check the Logs tab. Common causes:
+  - Invalid token (regenerate one in the developer portal)
+  - Missing *Message Content Intent* in the bot's privileged intents
+  - The bot wasn't invited to the guild matching `DISCORD_GUILD_ID`
+- **stopped** → either *Enable bot* is unchecked or the token field is
+  empty
+- **running** but **slash commands don't show up** → if you didn't set
+  a `DISCORD_GUILD_ID`, global sync can take up to an hour. Set the
+  guild ID to get them instantly.
+
+### Discord bot commands appear but fail with "missing role"
+You've set **Request role ID** to a role that the requesting user
+doesn't have. Either add them to the role, change the role ID, or clear
+the setting (empty = everyone can request).
+
 ### High disk use in `/tmp/h0melab`
 Normally the scratch dir is auto-cleaned after each successful download.
 If a download fails mid-way the tmp files are removed by the error
@@ -597,8 +803,8 @@ git pull
 docker compose up -d --build
 ```
 
-Your queue, settings and Megakino domain cache survive updates because
-they live in the `/config` volume.
+Your queue, settings, Megakino domain cache, and Discord bot config
+all survive updates because they live in the `/config` volume.
 
 ---
 
@@ -608,7 +814,7 @@ they live in the `/config` volume.
 |---|---|---|---|
 | `/mnt/bigdisk/Movies` | `/movies` | ✅ | Finished movies |
 | `/mnt/archive/Serien` | `/tv` | ✅ | Finished TV shows |
-| `./data/config` | `/config` | ✅ | SQLite DB, Megakino domain cache |
+| `./data/config` | `/config` | ✅ | SQLite DB, Megakino domain cache, bot config |
 | `./data/tmp` | `/tmp/h0melab` | ⚠ scratch | Raw download buffers (auto-deleted) |
 
 ---
@@ -617,11 +823,14 @@ they live in the `/config` volume.
 
 | Layer | What |
 |---|---|
-| Frontend | React 18 + Vite + TypeScript + react-i18next |
+| Frontend | React 18 + Vite + TypeScript + react-i18next (Space Grotesk / IBM Plex Mono / Instrument Serif) |
 | Backend | FastAPI + SQLModel + aiosqlite + APScheduler |
-| HTTP | `curl_cffi` (Chrome TLS fingerprint) |
+| HTTP (primary) | `curl_cffi` (Chrome TLS fingerprint) |
+| HTTP (fallback) | `cloudscraper` (opt-in, for stubborn Cloudflare challenges) |
 | Downloader | `yt-dlp` nightly |
 | Post-processing | `ffmpeg` (H.264/AAC MP4) |
+| Subtitles | `subliminal` (optional) |
+| Discord bot | `discord.py` 2.4, same event loop, supervised |
 | Persistence | SQLite with WAL mode |
 | Queue | `asyncio.Semaphore` (no Redis) |
 | Event bus | In-process pub/sub → WebSocket |
@@ -640,3 +849,6 @@ Heavy inspiration from the excellent
 from [`Yezun-hikari/Megakino-Downloader`](https://github.com/Yezun-hikari/Megakino-Downloader)
 (MIT) for the Megakino extractor and the community-maintained domain
 tracker it uses.
+
+The Cloudflare fallback uses [`VeNoMouS/cloudscraper`](https://github.com/VeNoMouS/cloudscraper)
+(MIT) vendored into the image at build time.
