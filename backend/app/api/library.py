@@ -123,7 +123,15 @@ def _find_show_dir(title: str) -> Path | None:
         norm_candidates = list(norm_dirs.keys())
         matches = get_close_matches(norm_title, norm_candidates, n=1, cutoff=0.6)
         if matches:
-            return norm_dirs[matches[0]]
+            candidate = matches[0]
+            # Reject the match when one name is a strict prefix of the
+            # other with substantial extra content — those are different
+            # series that only share a name prefix (e.g. "Malcolm
+            # Mittendrin" vs "Malcolm Mittendrin: Unfair wie immer").
+            a, b = sorted([candidate, norm_title], key=len)
+            if b.startswith(a) and len(b) - len(a) >= 4:
+                return None
+            return norm_dirs[candidate]
 
     return None
 
@@ -299,6 +307,13 @@ async def check_movie(
             # Fuzzy on normalized names
             if norm_title and norm_file:
                 matches = get_close_matches(norm_title, [norm_file], n=1, cutoff=0.65)
+                # Guard: don't treat a prefix-match with substantial
+                # extra content as the same title (e.g. "Malcolm
+                # Mittendrin" vs "Malcolm Mittendrin Unfair wie immer").
+                if matches:
+                    a, b = sorted([norm_title, norm_file], key=len)
+                    if b.startswith(a) and len(b) - len(a) >= 4:
+                        matches = []
             else:
                 matches = get_close_matches(lower, [name_lower], n=1, cutoff=0.75)
             if matches:
