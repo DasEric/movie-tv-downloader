@@ -17,6 +17,7 @@ HTML contract:
 from __future__ import annotations
 
 import asyncio
+import html as html_mod
 import logging
 import re
 from urllib.parse import urlparse
@@ -146,31 +147,49 @@ class StoScraper(BaseScraper):
 
     async def search(self, query: str) -> list[SearchResult]:
         """
-        Two-strategy search — s.to doesn't expose a reliable HTML search
-        endpoint, so we rely on the slug fallback which is very accurate
-        for exact titles.
+        Three-strategy search:
 
           1. Direct URL paste → extract slug, fetch page, populate poster.
-          2. Slug fallback:    slugify → fetch page, populate poster.
+          2. AJAX search on `/ajax/search?keyword=...` — the real site
+             search. Case-insensitive, supports partial titles, returns
+             every matching show.
+          3. Slug fallback: slugify → fetch page. Only kicks in when the
+             AJAX endpoint returns nothing (e.g. blocked / rate-limited).
 
-        Either way we ALWAYS fetch the show page so the grid card has a
-        poster + canonical title without a second round-trip.
+        The AJAX path skips the per-result poster fetch — the grid card
+        falls back to a placeholder until the user picks a result, at
+        which point `fetch_show_details` pulls in the real cover.
         """
         query = query.strip()
+        if not query:
+            return []
 
         if query.startswith("http"):
             slug = slug_from_url(query)
             if not slug:
                 return []
-        else:
-            slug = slugify(query, separator="-", lowercase=True)
-            if not slug:
-                return []
+            return await self._fetch_show_as_result(slug)
 
+        try:
+            ajax = await self._ajax_search(query)
+        except Exception as e:
+            log.warning("s.to ajax search %r failed: %s", query, e)
+            ajax = []
+        if ajax:
+            return ajax
+
+        # Last resort — the slug guess still nails exact titles.
+        slug = slugify(query, separator="-", lowercase=True)
+        if not slug:
+            return []
+        return await self._fetch_show_as_result(slug)
+
+    async def _fetch_show_as_result(self, slug: str) -> list[SearchResult]:
+        """Load a show page by slug and wrap it in a single SearchResult."""
         try:
             html = await _get_with_fallback(f"/serie/stream/{slug}")
         except Exception as e:
-            log.info("s.to slug fallback %r failed: %s", slug, e)
+            log.info("s.to slug fetch %r failed: %s", slug, e)
             return []
 
         base = _current_base()
@@ -180,7 +199,6 @@ class StoScraper(BaseScraper):
             base,
         )
         title = extract_title(html, slug.replace("-", " ").title())
-
         return [
             SearchResult(
                 title=title,
@@ -189,6 +207,91 @@ class StoScraper(BaseScraper):
                 poster=poster,
             )
         ]
+
+    async def _ajax_search(self, query: str) -> list[SearchResult]:
+        """
+        GET `/api/search/suggest?term=<query>` — s.to's live-search
+        endpoint (powers the Ctrl+K quick-search modal).
+
+        Response shape (verified against the production site):
+
+            {"shows":   [{"name": "...", "url": "/serie/<slug>"}, ...],
+             "people":  [...],
+             "genres":  [...]}
+
+        Caveats:
+          - The endpoint silently returns empty arrays when `term` is
+            shorter than 3 characters; the client-side JS enforces the
+            same minimum. We pass through whatever the user typed and
+            let the fallback path handle short queries.
+          - `url` points at the marketing page `/serie/<slug>`, not the
+            stream page `/serie/stream/<slug>` that the rest of this
+            scraper uses. We extract the slug and rebuild the URL.
+          - The API payload carries no cover URLs. We fetch the HTML
+            search page `/suche?term=...` in parallel and lift covers
+            out of it, joining by slug. Best-effort — if the HTML
+            fetch fails the results just come back poster-less and the
+            grid shows placeholders.
+
+        Rotates through `_DOMAINS` on failure like `get`.
+        """
+        global _active_idx
+        client = await get_client()
+        last_err: Exception | None = None
+        for i in range(len(_DOMAINS)):
+            idx = (_active_idx + i) % len(_DOMAINS)
+            base = _DOMAINS[idx]
+            try:
+                # Fire both requests in parallel. The API call is
+                # authoritative for the result list; the HTML is only
+                # consulted for covers and is allowed to fail.
+                api_task = client.get(
+                    f"{base}/api/search/suggest",
+                    params={"term": query},
+                    headers={
+                        "X-Requested-With": "XMLHttpRequest",
+                        "Accept": "application/json",
+                        "Referer": f"{base}/",
+                    },
+                )
+                html_task = client.get(
+                    f"{base}/suche",
+                    params={"term": query},
+                    headers={"Referer": f"{base}/"},
+                )
+                api_resp, html_resp = await asyncio.gather(
+                    api_task, html_task, return_exceptions=True
+                )
+
+                if isinstance(api_resp, Exception):
+                    raise api_resp
+                api_resp.raise_for_status()
+                data = _loads_unescaped(api_resp.text)
+                _active_idx = idx
+                results = _parse_sto_suggest(data, base, self.name)
+
+                if results and not isinstance(html_resp, Exception):
+                    try:
+                        html_resp.raise_for_status()
+                        covers = _build_cover_map(html_resp.text, base)
+                        for r in results:
+                            slug = r.url.rsplit("/", 1)[-1]
+                            if slug in covers:
+                                r.poster = covers[slug]
+                    except Exception as e:
+                        log.info(
+                            "s.to cover lookup failed for %r: %s",
+                            query, e,
+                        )
+
+                return results
+            except Exception as e:
+                log.warning("s.to ajax search on %s failed: %s", base, e)
+                last_err = e
+                continue
+        if last_err:
+            raise last_err
+        return []
 
     async def list_seasons(self, slug: str) -> list[int]:
         html = await _get_with_fallback(f"/serie/stream/{slug}")
@@ -383,6 +486,177 @@ class StoScraper(BaseScraper):
                 )
 
         raise last_err or RuntimeError(f"s.to redirect failed for {target}")
+
+
+_AJAX_TAG_RE = re.compile(r"<[^>]+>")
+# Control chars that sometimes leak into the JSON body and trip json.loads.
+_AJAX_CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+# Matches /serie/<slug> or /serie/stream/<slug>; captures the slug only.
+_STO_SLUG_RE = re.compile(r"^/serie/(?:stream/)?([^/]+)/?$")
+# Matches /anime/stream/<slug> (aniworld); captures the slug.
+_ANIWORLD_SLUG_RE = re.compile(r"^/?(?:anime/stream/)?([^/]+)/?$")
+
+
+def _loads_unescaped(text: str):
+    """Best-effort JSON decode — the sites occasionally ship stray control
+    chars and HTML entities inside string values. Mirrors phoenixthrush's
+    AniWorld-Downloader approach: unescape first, then strip control chars
+    if the first parse fails."""
+    import json
+    cleaned = html_mod.unescape(text or "")
+    try:
+        return json.loads(cleaned)
+    except Exception:
+        return json.loads(_AJAX_CTRL_RE.sub("", cleaned))
+
+
+def _clean_title(raw: str) -> str:
+    return html_mod.unescape(_AJAX_TAG_RE.sub("", raw or "")).strip()
+
+
+def _build_cover_map(html: str, base: str) -> dict[str, str]:
+    """Parse /suche HTML into a {slug: cover_url} map.
+
+    Each show card on /suche is an `<a href="/serie/<slug>">` wrapping
+    a cover image. The cover filename itself may be slug-based
+    (`/media/images/channel/desktop/<slug>-<hash>?format=jpg`) or an
+    opaque hash, so we can't rely on substring matching — we resolve
+    via the DOM tree instead.
+    """
+    if not html:
+        return {}
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html, "lxml")
+    out: dict[str, str] = {}
+    for a in soup.select('a[href^="/serie/"]'):
+        href = a.get("href") or ""
+        # Only top-level show links, not /serie/stream/<slug>/staffel-...
+        m = re.match(r"^/serie/(?:stream/)?([^/]+)/?$", href)
+        if not m:
+            continue
+        slug = m.group(1)
+        if slug in out:
+            continue
+        img = a.find("img")
+        if not img:
+            continue
+        src = (
+            img.get("data-src")
+            or img.get("src")
+            or ""
+        )
+        # Pick a real cover out of `srcset` too — that's where the
+        # hashed-filename variants live on the new card layout.
+        if not src or "data:image" in src:
+            srcset = img.get("srcset") or img.get("data-srcset") or ""
+            m2 = re.search(r"(/media/images/channel/[^\s,\"]+)", srcset)
+            if m2:
+                src = m2.group(1)
+        if not src:
+            continue
+        out[slug] = absolutize(src, base)
+    return out
+
+
+def _parse_sto_suggest(data, base: str, source: str) -> list[SearchResult]:
+    """Convert s.to's /api/search/suggest JSON into SearchResults.
+
+    Only the `shows` array matters — we discard `people` (actors /
+    directors) and `genres`. Each show has `name` and `url`, where
+    `url` is `/serie/<slug>`; we rebuild it as `/serie/stream/<slug>`
+    to match the rest of the scraper.
+    """
+    if not isinstance(data, dict):
+        return []
+    shows = data.get("shows")
+    if not isinstance(shows, list):
+        return []
+    seen: set[str] = set()
+    results: list[SearchResult] = []
+    for entry in shows:
+        if not isinstance(entry, dict):
+            continue
+        url_path = (entry.get("url") or entry.get("link") or "").strip()
+        m = _STO_SLUG_RE.match(url_path)
+        if not m:
+            continue
+        slug = m.group(1)
+        if not slug or slug in seen:
+            continue
+        seen.add(slug)
+        title = _clean_title(entry.get("name") or entry.get("title") or "")
+        if not title:
+            title = slug.replace("-", " ").title()
+        results.append(
+            SearchResult(
+                title=title,
+                url=f"{base}/serie/stream/{slug}",
+                source=source,
+                poster=None,
+            )
+        )
+    return results
+
+
+def _parse_aniworld_search(
+    data, base: str, source: str
+) -> list[SearchResult]:
+    """Convert aniworld's /ajax/seriesSearch JSON into SearchResults.
+
+    Each entry has `name`, `link` (bare slug), `productionYear`, and
+    `cover` (relative path to poster). We populate the poster eagerly
+    because the endpoint already gives us the URL — no extra fetch.
+    """
+    if not isinstance(data, list):
+        return []
+    seen: set[str] = set()
+    results: list[SearchResult] = []
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        link = (entry.get("link") or "").strip()
+        m = _ANIWORLD_SLUG_RE.match(link)
+        if not m:
+            continue
+        slug = m.group(1)
+        if not slug or slug in seen:
+            continue
+        seen.add(slug)
+
+        title = _clean_title(entry.get("name") or "")
+        if not title:
+            title = slug.replace("-", " ").title()
+
+        year_raw = str(entry.get("productionYear") or "")
+        year: int | None = None
+        ym = re.search(r"(19|20)\d{2}", year_raw)
+        if ym:
+            try:
+                year = int(ym.group(0))
+            except ValueError:
+                year = None
+
+        cover = (entry.get("cover") or "").strip()
+        poster: str | None = None
+        if cover:
+            if cover.startswith("http"):
+                poster = cover
+            elif cover.startswith("/"):
+                poster = f"{base}{cover}"
+            else:
+                poster = f"{base}/{cover}"
+
+        results.append(
+            SearchResult(
+                title=title,
+                url=f"{base}/anime/stream/{slug}",
+                year=year,
+                source=source,
+                poster=poster,
+            )
+        )
+    return results
 
 
 def _order_by_priority(hosters: list[dict], priority) -> list[dict]:

@@ -86,36 +86,47 @@ class AniworldScraper(BaseScraper):
 
     async def search(self, query: str) -> list[SearchResult]:
         """
-        Two-strategy search (same pattern as the s.to scraper):
+        Three-strategy search (same pattern as the s.to scraper):
 
           1. Direct URL paste → extract slug, fetch page, populate poster.
-          2. Slug fallback:    slugify → fetch page, populate poster.
-
-        In both cases we fetch the show page and pull out the poster +
-        canonical title, so the grid card has everything it needs without
-        a second round-trip.
+          2. AJAX search on `/ajax/search?keyword=...` — the real site
+             search. Case-insensitive, supports partial titles, returns
+             every matching show.
+          3. Slug fallback: slugify → fetch page. Only kicks in when the
+             AJAX endpoint returns nothing.
         """
         query = query.strip()
+        if not query:
+            return []
 
         if query.startswith("http"):
             slug = slug_from_url(query)
             if not slug:
                 return []
-        else:
-            slug = slugify(query, separator="-", lowercase=True)
-            if not slug:
-                return []
+            return await self._fetch_show_as_result(slug)
 
+        try:
+            ajax = await self._ajax_search(query)
+        except Exception as e:
+            log.warning("aniworld ajax search %r failed: %s", query, e)
+            ajax = []
+        if ajax:
+            return ajax
+
+        slug = slugify(query, separator="-", lowercase=True)
+        if not slug:
+            return []
+        return await self._fetch_show_as_result(slug)
+
+    async def _fetch_show_as_result(self, slug: str) -> list[SearchResult]:
         url = f"{BASE}/anime/stream/{slug}"
         try:
             html = await get(url)
         except Exception as e:
-            log.info("aniworld slug fallback %r failed: %s", slug, e)
+            log.info("aniworld slug fetch %r failed: %s", slug, e)
             return []
-
         poster = absolutize(extract_poster(html), BASE)
         title = extract_title(html, slug.replace("-", " ").title())
-
         return [
             SearchResult(
                 title=title,
@@ -124,6 +135,31 @@ class AniworldScraper(BaseScraper):
                 poster=poster,
             )
         ]
+
+    async def _ajax_search(self, query: str) -> list[SearchResult]:
+        """
+        GET `/ajax/seriesSearch?keyword=<query>` — aniworld's JSON search.
+
+        Response: JSON array of {name, link, description, cover,
+        productionYear}. `link` is a bare slug; `cover` is a relative
+        path we resolve against BASE so the grid card shows a poster
+        immediately.
+        """
+        from app.scrapers.sto import _loads_unescaped, _parse_aniworld_search
+
+        client = await get_client()
+        r = await client.get(
+            f"{BASE}/ajax/seriesSearch",
+            params={"keyword": query},
+            headers={
+                "X-Requested-With": "XMLHttpRequest",
+                "Accept": "application/json",
+                "Referer": f"{BASE}/",
+            },
+        )
+        r.raise_for_status()
+        data = _loads_unescaped(r.text)
+        return _parse_aniworld_search(data, BASE, self.name)
 
     async def list_seasons(self, slug: str) -> list[int]:
         html = await get(f"{BASE}/anime/stream/{slug}")
