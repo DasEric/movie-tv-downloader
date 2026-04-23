@@ -32,6 +32,7 @@ def _safe_folder(name: str) -> str:
     """Readable folder name: keep spaces, strip OS-invalid chars.
     Falls back to 'unknown' so we never produce an empty path segment."""
     cleaned = _INVALID.sub("", name or "").strip().rstrip(".")
+    cleaned = re.sub(r"  +", " ", cleaned)
     return cleaned or _FALLBACK
 
 

@@ -95,13 +95,15 @@ async def add_full_season(req: AddSeasonRequest):
             except Exception:
                 return False
 
-    # Filter out episodes already on disk.
+    # Filter out episodes already on disk or already in the queue.
     on_disk = set(get_existing_episodes(req.title).get(req.season, []))
-    eps = [ep for ep in eps if ep not in on_disk]
+    in_queue = await queue_manager.queued_episodes(req.slug, req.season)
+    already_have = on_disk | in_queue
+    eps = [ep for ep in eps if ep not in already_have]
 
     if not eps:
         return {"count": 0, "items": [], "skipped": 0, "total": 0,
-                "already_on_disk": len(on_disk)}
+                "already_on_disk": len(on_disk), "already_in_queue": len(in_queue)}
 
     checks = await asyncio.gather(*[check(ep) for ep in eps])
     available = [ep for ep, ok in zip(eps, checks) if ok]
@@ -142,7 +144,7 @@ async def add_full_series(req: AddSeriesRequest):
     if not season_nums:
         raise HTTPException(404, f"no seasons found for {req.slug}")
 
-    # Check what's already on disk so we don't re-download.
+    # Check what's already on disk or in the queue so we don't re-download.
     existing = get_existing_episodes(req.title)
 
     sem = asyncio.Semaphore(5)
@@ -150,6 +152,7 @@ async def add_full_series(req: AddSeriesRequest):
     total_skipped = 0
     total_eps = 0
     total_on_disk = 0
+    total_in_queue = 0
 
     for sn in season_nums:
         try:
@@ -158,9 +161,12 @@ async def add_full_series(req: AddSeriesRequest):
             continue
 
         on_disk = set(existing.get(sn, []))
-        new_eps = [ep for ep in eps if ep not in on_disk]
+        in_queue = await queue_manager.queued_episodes(req.slug, sn)
+        already_have = on_disk | in_queue
+        new_eps = [ep for ep in eps if ep not in already_have]
         total_eps += len(eps)
-        total_on_disk += len(eps) - len(new_eps)
+        total_on_disk += len(on_disk)
+        total_in_queue += len(in_queue - on_disk)
 
         if not new_eps:
             continue
@@ -199,6 +205,7 @@ async def add_full_series(req: AddSeriesRequest):
         "total": total_eps,
         "seasons": len(season_nums),
         "already_on_disk": total_on_disk,
+        "already_in_queue": total_in_queue,
     }
 
 
