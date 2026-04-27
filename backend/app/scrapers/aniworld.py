@@ -286,7 +286,7 @@ class AniworldScraper(BaseScraper):
                         url=direct,
                         hoster=h["provider"],
                         language=actual_lang,
-                        headers=headers_for(h["provider"]),
+                        headers=headers_for(h["provider"], embed_url),
                     )
             except Exception as e:
                 last_err = e

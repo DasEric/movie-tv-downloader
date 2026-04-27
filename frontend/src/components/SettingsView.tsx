@@ -415,21 +415,6 @@ export function SettingsView() {
             {t("settings.discord.guild_hint")}
           </div>
         </div>
-        <div>
-          <label>{t("settings.discord.cloudflareFallback")}</label>
-          <select
-            value={form.cloudflare_fallback_enabled ? "yes" : "no"}
-            onChange={(e) =>
-              set("cloudflare_fallback_enabled", e.target.value === "yes")
-            }
-          >
-            <option value="yes">{t("common.yes")}</option>
-            <option value="no">{t("common.no")}</option>
-          </select>
-          <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4 }}>
-            {t("settings.discord.cloudflareFallbackHint")}
-          </div>
-        </div>
       </div>
 
       <h3>{t("settings.subtitles")}</h3>

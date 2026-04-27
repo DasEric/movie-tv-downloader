@@ -295,7 +295,7 @@ class MegakinoScraper(BaseScraper):
                     url=direct,
                     hoster=hoster_name,
                     language="de",
-                    headers=headers_for(hoster_name),
+                    headers=headers_for(hoster_name, iframe_src),
                 )
 
         # Strategy B: native Megakino player via gxplayer.xyz

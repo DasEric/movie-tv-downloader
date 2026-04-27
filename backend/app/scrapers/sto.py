@@ -389,7 +389,7 @@ class StoScraper(BaseScraper):
                         url=direct,
                         hoster=h["provider"],
                         language=ep.language,
-                        headers=headers_for(h["provider"]),
+                        headers=headers_for(h["provider"], embed_url),
                     )
             except Exception as e:
                 last_err = e

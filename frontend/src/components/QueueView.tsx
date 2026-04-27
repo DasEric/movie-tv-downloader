@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, QueueItem } from "../api";
 
@@ -107,6 +108,8 @@ export function QueueView({ items, counts }: Props) {
 
 function QueueRow({ item }: { item: QueueItem }) {
   const { t } = useTranslation();
+  const [showCaptchaWarning, setShowCaptchaWarning] = useState(false);
+
   const label =
     item.kind === "movie"
       ? `🎬 ${item.title}`
@@ -175,10 +178,7 @@ function QueueRow({ item }: { item: QueueItem }) {
             <div style={{ marginBottom: 6 }}>{displayMessage}</div>
             <div className="row" style={{ gap: 8 }}>
               {stoUrl && (
-                <a
-                  href={stoUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <button
                   className="btn-link"
                   style={{
                     display: "inline-block",
@@ -186,12 +186,14 @@ function QueueRow({ item }: { item: QueueItem }) {
                     background: "var(--warning)",
                     color: "#000",
                     borderRadius: 4,
-                    textDecoration: "none",
+                    border: "none",
+                    cursor: "pointer",
                     fontSize: 12,
                   }}
+                  onClick={() => setShowCaptchaWarning(true)}
                 >
                   {t("queue.openInBrowser")}
-                </a>
+                </button>
               )}
               <button
                 style={{ fontSize: 12, padding: "4px 10px" }}
@@ -199,6 +201,55 @@ function QueueRow({ item }: { item: QueueItem }) {
               >
                 {t("common.retry")}
               </button>
+            </div>
+          </div>
+        )}
+
+        {showCaptchaWarning && stoUrl && (
+          <div className="modal-backdrop" onClick={() => setShowCaptchaWarning(false)}>
+            <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+              <h3 style={{ color: "var(--warning)", marginTop: 0 }}>
+                {t("queue.captchaWarning.title")}
+              </h3>
+              <div
+                style={{
+                  background: "rgba(245, 158, 11, 0.15)",
+                  border: "2px solid var(--warning)",
+                  borderRadius: 8,
+                  padding: "14px 16px",
+                  marginBottom: 16,
+                  fontSize: 14,
+                  lineHeight: 1.6,
+                }}
+              >
+                <p style={{ margin: "0 0 10px 0", fontWeight: 600 }}>
+                  {t("queue.captchaWarning.text1")}
+                </p>
+                <p style={{ margin: 0 }}>
+                  {t("queue.captchaWarning.text2")}
+                </p>
+              </div>
+              <div className="row" style={{ gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => setShowCaptchaWarning(false)}>
+                  {t("common.cancel")}
+                </button>
+                <a
+                  href={stoUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="primary"
+                  style={{
+                    display: "inline-block",
+                    padding: "6px 16px",
+                    borderRadius: 4,
+                    textDecoration: "none",
+                    fontSize: 13,
+                  }}
+                  onClick={() => setShowCaptchaWarning(false)}
+                >
+                  {t("queue.captchaWarning.confirm")}
+                </a>
+              </div>
             </div>
           </div>
         )}

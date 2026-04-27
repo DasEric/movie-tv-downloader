@@ -102,6 +102,12 @@
       "rate_limited": "Rate-Limit / Captcha"
     },
     "openInBrowser": "s.to im Browser öffnen",
+    "captchaWarning": {
+      "title": "Wichtiger Hinweis",
+      "text1": "Wenn auf der s.to-Seite kein Captcha erscheint, versuche es in einem anderen Browser (z.B. Firefox, Edge) oder lösche den kompletten Browser-Cache und die Cookies für s.to.",
+      "text2": "Erst nachdem du das Captcha erfolgreich gelöst hast, kannst du hier auf \"Erneut versuchen\" klicken.",
+      "confirm": "Verstanden, s.to öffnen"
+    },
     "hoster": "Hoster",
     "speed": "Tempo",
     "eta": "Rest",
@@ -197,9 +203,7 @@
       "guild_hint": "Leer lassen für Global-Sync (~1h). Server-ID für sofortige Sync.",
       "status_running": "Aktiv",
       "status_stopped": "Gestoppt",
-      "status_error": "Fehler",
-      "cloudflareFallback": "Cloudflare-Fallback (cloudscraper)",
-      "cloudflareFallbackHint": "Aktiviert einen zweiten HTTP-Pfad für 403/503-Cloudflare-Challenges."
+      "status_error": "Fehler"
     }
   },
   "footer": {
