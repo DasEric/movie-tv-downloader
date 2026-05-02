@@ -24,7 +24,7 @@ from app.scrapers.sto import StoScraper
 from app.services import notifications, settings_store, subtitles
 from app.services.captcha import CaptchaRequiredError
 from app.services.downloader import download
-from app.services.postprocess import finalize_movie, finalize_tv
+from app.services.postprocess import finalize_movie, finalize_tv, remux_subtitles
 
 log = logging.getLogger(__name__)
 
@@ -143,11 +143,13 @@ async def process_item(item_id: int) -> None:
                 raw_path, item.title, item.season or 1, item.episode or 1
             )
 
-        # ---- subtitles ----
+        # ---- subtitles (fetch + embed into mp4) ----
         try:
-            await subtitles.fetch_for(final_path)
+            srt_files = await subtitles.fetch_for(final_path)
+            if srt_files:
+                await remux_subtitles(final_path, srt_files)
         except Exception as e:
-            log.warning("subtitle fetch failed: %s", e)
+            log.warning("subtitle fetch/remux failed: %s", e)
 
         # ---- done ----
         await queue_manager.update(
