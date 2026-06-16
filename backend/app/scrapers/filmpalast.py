@@ -158,7 +158,7 @@ class FilmpalastScraper(BaseScraper):
             href_m = re.search(r'<a\s+[^>]*href="([^"]+)"[^>]*>\s*<i[^>]*>\s*</i>\s*Play\s*</a>', b, re.DOTALL | re.IGNORECASE)
             if not href_m:
                 # fallback: search for known hoster links in the block
-                href_m = re.search(r'href="([^"]*(?:voe|vidmoly|vidoza|dood|filemoon|streamtape)[^"]*)"', b, re.IGNORECASE)
+                href_m = re.search(r'href="([^"]*(?:voe|vidmoly|vidoza|dood|filemoon|streamtape|vidara|vidsonic)[^"]*)"', b, re.IGNORECASE)
 
             if name_m and href_m:
                 hosters.append({

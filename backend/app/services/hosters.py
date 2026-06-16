@@ -21,7 +21,7 @@ import re
 import string
 import time
 from typing import Awaitable, Callable
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 from app.services.http import get_client
 
@@ -43,6 +43,14 @@ PROVIDER_HEADERS: dict[str, dict[str, str]] = {
     "vidoza": {},
     "doodstream": {"Referer": "https://dood.li/"},
     "filemoon": {"Referer": "https://filemoon.to"},
+    "vidara": {
+        "Referer": "https://vidaraa.cc/",
+        "Origin": "https://vidaraa.cc",
+    },
+    "vidsonic": {
+        "Referer": "https://vidsonic.net/",
+        "Origin": "https://vidsonic.net",
+    },
 }
 
 
@@ -209,6 +217,65 @@ async def resolve_doodstream(embed_url: str) -> str | None:
     return f"{base}{_rand_string(10)}?token={token_m.group(1)}&expiry={int(time.time())}"
 
 
+# ---- VIDARA -----------------------------------------------------------------
+
+
+async def resolve_vidara(embed_url: str) -> str | None:
+    parsed = urlparse(embed_url)
+    domain = parsed.netloc
+    filecode = parsed.path.strip("/").split("/")[-1]
+
+    c = await get_client()
+    url = f"https://{domain}/api/stream"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Content-Type": "application/json",
+        "Referer": embed_url,
+        "Origin": f"https://{domain}",
+    }
+    payload = {
+        "filecode": filecode,
+        "device": "web"
+    }
+
+    try:
+        r = await c.post(url, headers=headers, json=payload)
+        r.raise_for_status()
+        data = r.json()
+        return data.get("streaming_url")
+    except Exception as e:
+        log.warning("vidara: API call failed: %s", e)
+        return None
+
+
+# ---- Vidsonic --------------------------------------------------------------
+
+
+async def resolve_vidsonic(embed_url: str) -> str | None:
+    c = await get_client()
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Referer": embed_url,
+    }
+    try:
+        r = await c.get(embed_url, headers=headers)
+        r.raise_for_status()
+        html = r.text
+
+        m = re.search(r'const\s+_0x1\s*=\s*[\'"]([^\'"]+)[\'"]', html)
+        if not m:
+            log.warning("vidsonic: could not find _0x1 variable in HTML")
+            return None
+
+        hex_str = m.group(1)
+        clean = hex_str.replace("|", "")
+        decoded = bytes.fromhex(clean).decode("utf-8", errors="ignore")
+        return decoded[::-1]
+    except Exception as e:
+        log.warning("vidsonic: failed to resolve stream: %s", e)
+        return None
+
+
 # ---- registry --------------------------------------------------------------
 
 Resolver = Callable[[str], Awaitable[str | None]]
@@ -219,6 +286,8 @@ RESOLVERS: dict[str, Resolver] = {
     "vidoza": resolve_vidoza,
     "doodstream": resolve_doodstream,
     "dood": resolve_doodstream,
+    "vidara": resolve_vidara,
+    "vidsonic": resolve_vidsonic,
 }
 
 

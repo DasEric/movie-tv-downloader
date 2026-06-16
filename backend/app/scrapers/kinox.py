@@ -202,7 +202,13 @@ class KinoxScraper(BaseScraper):
         if not hosters:
             raise RuntimeError(f"kinox: no mirror links found on {movie_url}")
 
-        return await self._resolve_hosters(hosters, movie_url)
+        # Get language from detail page
+        language = "de"
+        info = await self._parse_detail_page(movie_url, html)
+        if info:
+            language = info.language
+
+        return await self._resolve_hosters(hosters, movie_url, language)
 
     async def _get_episode_stream(self, ep: EpisodeRef) -> StreamCandidate:
         url = f"{BASE}/Stream/{ep.slug}.html"
@@ -220,7 +226,7 @@ class KinoxScraper(BaseScraper):
         if not hosters:
             raise RuntimeError(f"kinox: no mirror links found for episode S{ep.season:02d}E{ep.episode:02d}")
 
-        return await self._resolve_hosters(hosters, url)
+        return await self._resolve_hosters(hosters, url, ep.language)
 
     def _parse_mirrors(self, html: str) -> list[dict]:
         # Extract <li id="Hoster_..." class="MirBtn..." rel="[rel]"> ... <div class="Named">[Hoster]</div>
@@ -234,7 +240,7 @@ class KinoxScraper(BaseScraper):
             })
         return hosters
 
-    async def _resolve_hosters(self, hosters: list[dict], referer: str) -> StreamCandidate:
+    async def _resolve_hosters(self, hosters: list[dict], referer: str, language: str) -> StreamCandidate:
         priority = await settings_store.get(
             "hoster_priority", ["VOE", "Vidmoly", "Vidoza", "Doodstream"]
         )
@@ -270,7 +276,7 @@ class KinoxScraper(BaseScraper):
                     return StreamCandidate(
                         url=direct,
                         hoster=h["provider"],
-                        language="de" if "1.png" in html_parser.unescape(referer) else "en",
+                        language=language,
                         headers=headers_for(h["provider"])
                     )
             except Exception as e:

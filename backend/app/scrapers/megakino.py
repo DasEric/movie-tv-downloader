@@ -342,7 +342,7 @@ def _absolutize(url: str, base: str) -> str:
 
 def _hoster_from_url(url: str) -> str:
     host = urlparse(url).netloc.lower()
-    for needle in ("voe", "vidmoly", "vidoza", "dood", "filemoon", "streamtape"):
+    for needle in ("voe", "vidmoly", "vidoza", "dood", "filemoon", "streamtape", "vidara", "vidsonic"):
         if needle in host:
             return needle
     return host or "direct"
@@ -355,7 +355,7 @@ def _find_hoster_iframe(html: str) -> str | None:
     doesn't have — we check both.
     """
     soup = BeautifulSoup(html, "lxml")
-    known = ("voe", "vidmoly", "vidoza", "dood", "filemoon", "streamtape")
+    known = ("voe", "vidmoly", "vidoza", "dood", "filemoon", "streamtape", "vidara", "vidsonic")
     for iframe in soup.find_all("iframe"):
         for attr in ("data-src", "src"):
             val = iframe.get(attr) or ""
