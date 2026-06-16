@@ -105,6 +105,16 @@ class FilmpalastScraper(BaseScraper):
         if not title:
             return None
 
+        # Clean title: e.g. "Film Finch Stream kostenlos online..." -> "Finch"
+        title = title.strip()
+        if title.lower().startswith("film "):
+            title = title[5:].strip()
+        title = re.sub(r'\s+stream\s+kostenlos\s+online.*$', '', title, flags=re.IGNORECASE)
+        title = re.sub(r'\s+stream\s+kostenlos.*$', '', title, flags=re.IGNORECASE)
+        title = re.sub(r'\s+stream\s*$', '', title, flags=re.IGNORECASE)
+        title = re.sub(r'\s+kostenlos\s+online.*$', '', title, flags=re.IGNORECASE)
+        title = title.strip()
+
         # Extract year: Ver&ouml;ffentlicht: 2022
         year = None
         m_year = re.search(r'Ver(?:&ouml;|ö)ffentlicht:\s*(\d{4})', html, re.IGNORECASE)
