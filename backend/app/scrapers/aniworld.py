@@ -130,6 +130,73 @@ class AniworldScraper(BaseScraper):
             )
         ]
 
+    async def discover(self, page: int = 1, category: str | None = None) -> list[SearchResult]:
+        url_path = "/"
+        if category == "popular":
+            url_path = "/beliebte-animes"
+        elif category == "series":
+            url_path = "/animes"
+
+        try:
+            html = await get(BASE + url_path)
+        except Exception as e:
+            log.warning("aniworld discover failed: %s", e)
+            return []
+
+        results = []
+        seen_urls = set()
+        import html as html_lib
+
+        # 1. First search for cards with image tags (handles popular and home page)
+        matches = re.finditer(r'<a[^>]*href="(/anime/stream/[a-z0-9\-]+)"[^>]*>.*?<img(?P<img>[^>]+)>', html, re.DOTALL | re.IGNORECASE)
+        for m in matches:
+            href = m.group(1)
+            img_tag = m.group("img")
+            
+            # Find alt (title)
+            alt_m = re.search(r'alt="([^"]+)"', img_tag, re.IGNORECASE)
+            title = alt_m.group(1).strip() if alt_m else ""
+            if not title:
+                continue
+                
+            # Find data-src, fallback to src
+            src_m = re.search(r'data-src="([^"]+)"', img_tag, re.IGNORECASE)
+            if not src_m:
+                src_m = re.search(r'src="([^"]+)"', img_tag, re.IGNORECASE)
+            
+            img_src = src_m.group(1) if src_m else None
+            
+            full_url = BASE + href
+            if full_url not in seen_urls:
+                seen_urls.add(full_url)
+                results.append(SearchResult(
+                    title=html_lib.unescape(title),
+                    url=full_url,
+                    source=self.name,
+                    poster=absolutize(img_src, BASE)
+                ))
+
+        # 2. Fallback / full list (handles /animes list page which has no images)
+        if not results:
+            matches = re.finditer(r'<a[^>]*href="(/anime/stream/(?P<slug>[a-z0-9\-]+))"[^>]*>(?P<title>[^<]+)</a>', html, re.IGNORECASE)
+            for m in matches:
+                href = m.group(1)
+                title = m.group("title").strip()
+                full_url = BASE + href
+                if full_url not in seen_urls:
+                    seen_urls.add(full_url)
+                    results.append(SearchResult(
+                        title=html_lib.unescape(title),
+                        url=full_url,
+                        source=self.name,
+                        poster=None
+                    ))
+                    
+        # Apply pagination slicing
+        start = (page - 1) * 30
+        end = page * 30
+        return results[start:end]
+
     async def list_seasons(self, slug: str) -> list[int]:
         html = await get(f"{BASE}/anime/stream/{slug}")
         seasons: set[int] = set()

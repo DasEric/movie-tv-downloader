@@ -2,15 +2,16 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { QueueView } from "./components/QueueView";
 import { AddView } from "./components/AddView";
+import { CatalogView } from "./components/CatalogView";
 import { LogsView } from "./components/LogsView";
 import { SettingsView } from "./components/SettingsView";
 import { UpcomingView } from "./components/UpcomingView";
 import { WatchlistView } from "./components/WatchlistView";
 import { api, QueueItem, openEventsSocket } from "./api";
 
-type Tab = "queue" | "add" | "watchlist" | "upcoming" | "logs" | "settings";
+type Tab = "queue" | "add" | "catalog" | "watchlist" | "upcoming" | "logs" | "settings";
 
-const TAB_ORDER: Tab[] = ["queue", "add", "watchlist", "upcoming", "logs", "settings"];
+const TAB_ORDER: Tab[] = ["queue", "add", "catalog", "watchlist", "upcoming", "logs", "settings"];
 
 // Simple inline icon set — single weight, consistent stroke
 function Icon({ name }: { name: Tab }) {
@@ -65,6 +66,15 @@ function Icon({ name }: { name: Tab }) {
         <svg {...common}>
           <circle cx="12" cy="12" r="3" />
           <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h0a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+        </svg>
+      );
+    case "catalog":
+      return (
+        <svg {...common}>
+          <rect x="3" y="3" width="7" height="9" rx="1" />
+          <rect x="14" y="3" width="7" height="5" rx="1" />
+          <rect x="14" y="12" width="7" height="9" rx="1" />
+          <rect x="3" y="16" width="7" height="5" rx="1" />
         </svg>
       );
   }
@@ -217,6 +227,7 @@ export default function App() {
             <span className="topbar-sub">
               {tab === "queue" && t("queue.heading")}
               {tab === "add" && t("add.heading")}
+              {tab === "catalog" && "Mediatheken & Kataloge durchstöbern"}
               {tab === "watchlist" && t("watchlist.heading")}
               {tab === "upcoming" && t("upcoming.heading")}
               {tab === "logs" && t("logs.heading")}
@@ -237,6 +248,7 @@ export default function App() {
         <main>
           {tab === "queue" && <QueueView items={items} counts={counts} />}
           {tab === "add" && <AddView />}
+          {tab === "catalog" && <CatalogView />}
           {tab === "watchlist" && <WatchlistView />}
           {tab === "upcoming" && (
             <UpcomingView tmdbConfigured={!!info?.configured?.tmdb} />

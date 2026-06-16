@@ -168,13 +168,13 @@ class StoScraper(BaseScraper):
                 return []
 
         try:
-            html = await _get_with_fallback(f"/serie/stream/{slug}")
+            html = await _get_with_fallback(f"/serie/{slug}")
         except Exception as e:
             log.info("s.to slug fallback %r failed: %s", slug, e)
             return []
 
         base = _current_base()
-        url = f"{base}/serie/stream/{slug}"
+        url = f"{base}/serie/{slug}"
         poster = absolutize(
             _extract_sto_poster(html, slug) or extract_poster(html),
             base,
@@ -190,15 +190,83 @@ class StoScraper(BaseScraper):
             )
         ]
 
+    async def discover(self, page: int = 1, category: str | None = None) -> list[SearchResult]:
+        url_path = "/"
+        if category == "popular":
+            url_path = "/beliebte-serien"
+        elif category == "series":
+            url_path = "/serien"
+
+        try:
+            html = await _get_with_fallback(url_path)
+        except Exception as e:
+            log.warning("s.to discover failed: %s", e)
+            return []
+
+        results = []
+        seen_urls = set()
+        base = _current_base()
+        import html as html_lib
+
+        # 1. First search for cards with image tags (handles popular and home page)
+        matches = re.finditer(r'<a[^>]*href="(/serie/[a-z0-9\-]+)"[^>]*>.*?<img(?P<img>[^>]+)>', html, re.DOTALL | re.IGNORECASE)
+        for m in matches:
+            href = m.group(1)
+            img_tag = m.group("img")
+            
+            # Find alt (title)
+            alt_m = re.search(r'alt="([^"]+)"', img_tag, re.IGNORECASE)
+            title = alt_m.group(1).strip() if alt_m else ""
+            if not title:
+                continue
+                
+            # Find data-src, fallback to src
+            src_m = re.search(r'data-src="([^"]+)"', img_tag, re.IGNORECASE)
+            if not src_m:
+                src_m = re.search(r'src="([^"]+)"', img_tag, re.IGNORECASE)
+            
+            img_src = src_m.group(1) if src_m else None
+            
+            full_url = base + href
+            if full_url not in seen_urls:
+                seen_urls.add(full_url)
+                results.append(SearchResult(
+                    title=html_lib.unescape(title),
+                    url=full_url,
+                    source=self.name,
+                    poster=absolutize(img_src, base)
+                ))
+
+        # 2. Fallback / full list (handles /serien list page which has no images)
+        if not results:
+            matches = re.finditer(r'<a[^>]*href="(/serie/(?P<slug>[a-z0-9\-]+))"[^>]*>(?P<title>[^<]+)</a>', html, re.IGNORECASE)
+            for m in matches:
+                href = m.group(1)
+                title = m.group("title").strip()
+                full_url = base + href
+                if full_url not in seen_urls:
+                    seen_urls.add(full_url)
+                    results.append(SearchResult(
+                        title=html_lib.unescape(title),
+                        url=full_url,
+                        source=self.name,
+                        poster=None
+                    ))
+                    
+        # Apply pagination slicing
+        start = (page - 1) * 30
+        end = page * 30
+        return results[start:end]
+
     async def list_seasons(self, slug: str) -> list[int]:
-        html = await _get_with_fallback(f"/serie/stream/{slug}")
+        html = await _get_with_fallback(f"/serie/{slug}")
         seasons: set[int] = set()
         for m in re.finditer(r"/staffel-(\d+)", html):
             seasons.add(int(m.group(1)))
         return sorted(seasons)
 
     async def list_episodes(self, slug: str, season: int) -> list[int]:
-        html = await _get_with_fallback(f"/serie/stream/{slug}/staffel-{season}")
+        html = await _get_with_fallback(f"/serie/{slug}/staffel-{season}")
         eps: set[int] = set()
         for m in re.finditer(r"/episode-(\d+)", html):
             eps.add(int(m.group(1)))
@@ -208,7 +276,7 @@ class StoScraper(BaseScraper):
 
     async def fetch_show_details(self, slug: str) -> dict:
         """One-shot fetch for the UI: poster + season list + title."""
-        html = await _get_with_fallback(f"/serie/stream/{slug}")
+        html = await _get_with_fallback(f"/serie/{slug}")
         base = _current_base()
         poster = absolutize(
             _extract_sto_poster(html, slug) or extract_poster(html),
@@ -235,7 +303,7 @@ class StoScraper(BaseScraper):
         """
         try:
             html = await _get_with_fallback(
-                f"/serie/stream/{slug}/staffel-{season}/episode-{episode}"
+                f"/serie/{slug}/staffel-{season}/episode-{episode}"
             )
         except Exception:
             return False
@@ -245,7 +313,7 @@ class StoScraper(BaseScraper):
 
     async def get_stream(self, ep: EpisodeRef) -> StreamCandidate:
         html = await _get_with_fallback(
-            f"/serie/stream/{ep.slug}/staffel-{ep.season}/episode-{ep.episode}"
+            f"/serie/{ep.slug}/staffel-{ep.season}/episode-{ep.episode}"
         )
 
         label = LANG_LABEL.get(ep.language, "Deutsch")
@@ -254,7 +322,7 @@ class StoScraper(BaseScraper):
             # LATE captcha check: only if we can't find any providers AND
             # the page contains definitive challenge markers
             if is_captcha_page(html, 200):
-                url = f"{_current_base()}/serie/stream/{ep.slug}/staffel-{ep.season}/episode-{ep.episode}"
+                url = f"{_current_base()}/serie/{ep.slug}/staffel-{ep.season}/episode-{ep.episode}"
                 raise CaptchaRequiredError(
                     f"Cloudflare / captcha challenge for {url} — "
                     "curl_cffi TLS fingerprint was insufficient this time."
@@ -391,5 +459,5 @@ def _order_by_priority(hosters: list[dict], priority) -> list[dict]:
 
 
 def slug_from_url(url: str) -> str | None:
-    m = re.search(r"/serie/stream/([^/]+)", url)
+    m = re.search(r"/serie/(?:stream/)?([^/]+)", url)
     return m.group(1) if m else None

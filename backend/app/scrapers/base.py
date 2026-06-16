@@ -13,6 +13,7 @@ class SearchResult:
     source: str = ""
     poster: str | None = None
     language: str | None = None
+    hosters: list[str] | None = None
 
 
 @dataclass
@@ -38,3 +39,6 @@ class BaseScraper(ABC):
     @abstractmethod
     async def search(self, query: str) -> list[SearchResult]:
         ...
+
+    async def discover(self, page: int = 1, category: str | None = None) -> list[SearchResult]:
+        raise NotImplementedError("discover not implemented for this scraper")

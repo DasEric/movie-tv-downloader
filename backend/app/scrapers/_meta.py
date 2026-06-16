@@ -218,15 +218,18 @@ def extract_title(html: str, fallback: str = "") -> str:
     title: str | None = None
     # Prefer the itemprop h1 (structured markup)
     m = re.search(
-        r'<h1[^>]*itemprop="name"[^>]*>([^<]+)</h1>', html, re.IGNORECASE
+        r'<h1[^>]*itemprop="name"[^>]*>(.*?)</h1>', html, re.IGNORECASE | re.DOTALL
     )
     if m:
-        title = m.group(1).strip()
-    # Fall back to any h1
+        title = re.sub(r'<[^>]+>', '', m.group(1)).strip()
+    # Fall back to any h1 that is not "navigation"
     if not title:
-        m = re.search(r"<h1[^>]*>([^<]+)</h1>", html, re.IGNORECASE)
-        if m:
-            title = m.group(1).strip()
+        for m in re.finditer(r"<h1[^>]*>(.*?)</h1>", html, re.IGNORECASE | re.DOTALL):
+            t = m.group(1).strip()
+            t_clean = re.sub(r'<[^>]+>', '', t).strip()
+            if t_clean and t_clean.lower() != "navigation":
+                title = t_clean
+                break
     if not title:
         m = re.search(r"<title>([^<|]+)", html, re.IGNORECASE)
         if m:

@@ -43,6 +43,64 @@ async def search(
     ]
 
 
+@router.get("/catalog")
+async def get_catalog(
+    source: ItemSource = Query(...),
+    category: str | None = Query(None),
+    page: int = Query(1, ge=1),
+    language: str | None = Query(None),
+    hoster: str | None = Query(None),
+    sort: str | None = Query(None),
+):
+    scraper = get_scraper(source)
+    try:
+        results = await scraper.discover(page=page, category=category)
+    except Exception as e:
+        raise HTTPException(502, f"catalog discovery failed: {e}")
+
+    filtered = []
+    for r in results:
+        # Check language
+        if language:
+            r_lang = (r.language or "").lower()
+            q_lang = language.lower()
+            if q_lang in ("de", "de-dub", "de-sub"):
+                if r_lang and not any(x in r_lang for x in ("de", "german", "ger", "dub")):
+                    continue
+            elif q_lang in ("en", "en-dub", "en-sub"):
+                if r_lang and not any(x in r_lang for x in ("en", "english", "eng")):
+                    continue
+            elif q_lang != r_lang:
+                continue
+
+        # Check hoster
+        if hoster and r.hosters is not None:
+            if not any(hoster.lower() in h.lower() for h in r.hosters):
+                continue
+
+        filtered.append(r)
+
+    # Sort
+    if sort == "newest":
+        filtered.sort(key=lambda r: r.year or 0, reverse=True)
+    elif sort == "title":
+        filtered.sort(key=lambda r: (r.title or "").lower())
+
+    return [
+        {
+            "title": r.title,
+            "url": r.url,
+            "year": r.year,
+            "source": r.source,
+            "poster": r.poster,
+            "slug": _slug_for(source, r.url),
+            "language": r.language,
+            "hosters": r.hosters,
+        }
+        for r in filtered
+    ]
+
+
 @router.get("/seasons")
 async def list_seasons_route(source: ItemSource, slug: str):
     scraper = get_scraper(source)

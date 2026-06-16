@@ -46,10 +46,9 @@ class KinoxScraper(BaseScraper):
             return []
 
         blocks = html.split('class="Opt leftOpt Headlne"')
-        candidates = []
+        results = []
 
         for b in blocks[1:]:
-            # Extract URL and title from the headline link
             href_m = re.search(r'href="([^"]+)"', b, re.IGNORECASE)
             title_m = re.search(r'title="([^"]+)"', b, re.IGNORECASE)
             if not title_m:
@@ -59,8 +58,18 @@ class KinoxScraper(BaseScraper):
                 continue
 
             movie_url = href_m.group(1).strip()
+            if "/Stream/" not in movie_url:
+                continue
             title = title_m.group(1).strip()
             title = re.sub(r'<[^>]+>', '', title)  # strip any html tags
+
+            # Extract year from title (before cleaning)
+            year = None
+            m_year = re.search(r'\b(19|20)\d{2}\b', title)
+            if m_year:
+                year = int(m_year.group(0))
+
+            title = re.sub(r'\s*\(\d{4}\)\s*$', '', title).strip()
 
             if movie_url.startswith("/"):
                 movie_url = BASE + movie_url
@@ -83,49 +92,22 @@ class KinoxScraper(BaseScraper):
                 elif lang_id == "2":
                     lang = "en"
 
-            candidates.append((movie_url, title, poster, lang))
+            results.append(SearchResult(
+                title=title,
+                url=movie_url,
+                year=year,
+                source=self.name,
+                poster=poster,
+                language=lang
+            ))
 
-        candidates = candidates[:30]
-        sem = asyncio.Semaphore(6)
-
-        async def resolve_candidate(idx: int, movie_url: str, title: str, poster: str | None, lang: str) -> SearchResult:
-            if idx >= 15:
-                return SearchResult(
-                    title=title,
-                    url=movie_url,
-                    source=self.name,
-                    poster=poster,
-                    language=lang
-                )
-
-            async with sem:
-                try:
-                    detail_html = await get(movie_url)
-                    info = await self._parse_detail_page(movie_url, detail_html)
-                    if info:
-                        if not info.poster:
-                            info.poster = poster
-                        if lang:
-                            info.language = lang
-                        return info
-                except Exception as e:
-                    log.warning("kinox: failed to fetch details for %s: %s", movie_url, e)
-
-                return SearchResult(
-                    title=title,
-                    url=movie_url,
-                    source=self.name,
-                    poster=poster,
-                    language=lang
-                )
-
-        results = await asyncio.gather(*[resolve_candidate(idx, url, title, post, lang) for idx, (url, title, post, lang) in enumerate(candidates)])
-        return list(results)
+        return results[:30]
 
     async def _parse_detail_page(self, movie_url: str, html: str) -> SearchResult | None:
         title = extract_title(html)
         if not title:
             return None
+        title = re.sub(r'\s*\(\d{4}\)\s*$', '', title).strip()
 
         # Extract year: class="Year">(2009)
         year = None
@@ -155,14 +137,90 @@ class KinoxScraper(BaseScraper):
             if poster.startswith("/"):
                 poster = BASE + poster
 
+        # Extract hosters
+        hosters = []
+        for m in re.finditer(r'<li[^>]*class="[^"]*MirBtn[^"]*"[^>]*rel="([^"]+)"[^>]*>.*?<div class="Named">([^<]+)</div>', html, re.DOTALL | re.IGNORECASE):
+            name = m.group(2).strip().replace(".SX", "").replace(".to", "").strip()
+            if name not in hosters:
+                hosters.append(name)
+
         return SearchResult(
             title=title,
             url=movie_url,
             year=year,
             source=self.name,
             poster=poster,
-            language=language
+            language=language,
+            hosters=hosters
         )
+
+    async def discover(self, page: int = 1, category: str | None = None) -> list[SearchResult]:
+        if category == "series":
+            url = f"{BASE}/Kino-Serien.html" if page == 1 else f"{BASE}/Kino-Serien/page-{page}.html"
+        else:
+            url = f"{BASE}/Kino-Filme.html" if page == 1 else f"{BASE}/Kino-Filme/page-{page}.html"
+
+        try:
+            html = await get(url)
+        except Exception as e:
+            log.warning("kinox discover failed: %s", e)
+            return []
+
+        blocks = html.split('class="Opt leftOpt Headlne"')
+        results = []
+
+        for b in blocks[1:]:
+            href_m = re.search(r'href="([^"]+)"', b, re.IGNORECASE)
+            title_m = re.search(r'title="([^"]+)"', b, re.IGNORECASE)
+            if not title_m:
+                title_m = re.search(r'<h1>(.*?)</h1>', b, re.DOTALL | re.IGNORECASE)
+
+            if not (href_m and title_m):
+                continue
+
+            movie_url = href_m.group(1).strip()
+            if "/Stream/" not in movie_url:
+                continue
+            title = title_m.group(1).strip()
+            title = re.sub(r'<[^>]+>', '', title)
+
+            # Extract year from title
+            year = None
+            m_year = re.search(r'\b(19|20)\d{2}\b', title)
+            if m_year:
+                year = int(m_year.group(0))
+
+            title = re.sub(r'\s*\(\d{4}\)\s*$', '', title).strip()
+
+            if movie_url.startswith("/"):
+                movie_url = BASE + movie_url
+
+            poster = None
+            m_img = re.search(r'<div class="Thumb"><img[^>]*src="([^"]+)"', b, re.IGNORECASE)
+            if m_img:
+                poster = m_img.group(1).strip()
+                if poster.startswith("/"):
+                    poster = BASE + poster
+
+            lang = "de"
+            m_lang = re.search(r'src="/gr/sys/lng/(\d+)\.png"', b, re.IGNORECASE)
+            if m_lang:
+                lang_id = m_lang.group(1)
+                if lang_id == "1":
+                    lang = "de"
+                elif lang_id == "2":
+                    lang = "en"
+
+            results.append(SearchResult(
+                title=title,
+                url=movie_url,
+                year=year,
+                source=self.name,
+                poster=poster,
+                language=lang
+            ))
+
+        return results[:30]
 
     async def list_seasons(self, slug: str) -> list[int]:
         html = await get(f"{BASE}/Stream/{slug}.html")

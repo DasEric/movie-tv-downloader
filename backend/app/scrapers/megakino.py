@@ -78,6 +78,7 @@ class MegakinoScraper(BaseScraper):
     def __init__(self) -> None:
         self.base_url: str = self._load_persisted() or SEED_DOMAINS[0]
         self._token_fetched: bool = False
+        self._base_resolved: bool = False
 
     # ---------- persistence ----------
 
@@ -111,6 +112,9 @@ class MegakinoScraper(BaseScraper):
 
         Whatever we successfully reach is persisted for next time.
         """
+        if self._base_resolved:
+            return self.base_url
+
         # --- 1) community tracker ---
         try:
             c = await get_client()
@@ -149,10 +153,12 @@ class MegakinoScraper(BaseScraper):
                     self.base_url = resolved
                     self._persist(resolved)
                     self._token_fetched = False
+                self._base_resolved = True
                 return resolved or self.base_url
             except Exception as e:
                 last_err = e
                 log.warning("megakino seed %s failed: %s", seed, e)
+        self._base_resolved = True
         raise RuntimeError(f"megakino: no reachable domain ({last_err})")
 
     # ---------- session token warm-up ----------
@@ -179,22 +185,39 @@ class MegakinoScraper(BaseScraper):
     # ---------- search ----------
 
     async def search(self, query: str) -> list[SearchResult]:
-        base = await self.resolve_base()
-        await self._ensure_token()
+        try:
+            base = await self.resolve_base()
+            await self._ensure_token()
 
-        html = await get(
-            f"{base}/index.php",
-            params={
-                "do": "search",
-                "subaction": "search",
-                "search_start": "0",
-                "full_search": "0",
-                "result_from": "1",
-                "story": query,
-            },
-            check_captcha=False,
-        )
-        return self._parse_search(html, base)
+            html = await get(
+                f"{base}/index.php",
+                params={
+                    "do": "search",
+                    "subaction": "search",
+                    "search_start": "0",
+                    "full_search": "0",
+                    "result_from": "1",
+                    "story": query,
+                },
+                check_captcha=False,
+            )
+            return self._parse_search(html, base)
+        except Exception as e:
+            self._base_resolved = False
+            log.warning("megakino search failed: %s", e)
+            return []
+
+    async def discover(self, page: int = 1, category: str | None = None) -> list[SearchResult]:
+        try:
+            base = await self.resolve_base()
+            await self._ensure_token()
+            url = f"{base}/" if page == 1 else f"{base}/page/{page}/"
+            html = await get(url, check_captcha=False)
+            return self._parse_search(html, base)
+        except Exception as e:
+            self._base_resolved = False
+            log.warning("megakino discover failed: %s", e)
+            return []
 
     @staticmethod
     def _parse_search(html: str, base: str) -> list[SearchResult]:

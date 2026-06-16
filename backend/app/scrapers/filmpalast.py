@@ -45,7 +45,7 @@ class FilmpalastScraper(BaseScraper):
 
         # Split by article blocks
         articles = html.split('<article class="liste')
-        candidates = []
+        results = []
 
         for art in articles[1:]:
             # Extract title and URL inside h2 tag
@@ -54,13 +54,19 @@ class FilmpalastScraper(BaseScraper):
                 continue
             h2_content = h2_m.group(1)
             href_m = re.search(r'href="([^"]+)"', h2_content, re.IGNORECASE)
-            title_m = re.search(r'title="([^"]+)"', h2_content, re.IGNORECASE)
-
-            if not (href_m and title_m):
+            if not href_m:
                 continue
 
             movie_url = href_m.group(1).strip()
-            title = title_m.group(1).strip()
+
+            title_m = re.search(r'title="([^"]+)"', h2_content, re.IGNORECASE)
+            if title_m:
+                title = title_m.group(1).strip()
+            else:
+                title_anchor_m = re.search(r'<a[^>]*>(.*?)</a>', h2_content, re.IGNORECASE)
+                if not title_anchor_m:
+                    continue
+                title = re.sub(r'<[^>]+>', '', title_anchor_m.group(1)).strip()
 
             if movie_url.startswith("//"):
                 movie_url = "https:" + movie_url
@@ -69,7 +75,9 @@ class FilmpalastScraper(BaseScraper):
 
             # Extract poster
             poster = None
-            m_poster = re.search(r'<img\s+[^>]*src="([^"]+)"\s+class="cover-opacity"', art, re.IGNORECASE)
+            m_poster = re.search(r'<img\s+[^>]*src="([^"]+)"[^>]*class="[^"]*cover[^"]*"', art, re.IGNORECASE)
+            if not m_poster:
+                m_poster = re.search(r'<img\s+[^>]*class="[^"]*cover[^"]*"[^>]*src="([^"]+)"', art, re.IGNORECASE)
             if m_poster:
                 poster = m_poster.group(1).strip()
                 if poster.startswith("//"):
@@ -77,42 +85,22 @@ class FilmpalastScraper(BaseScraper):
                 elif poster.startswith("/"):
                     poster = BASE + poster
 
-            candidates.append((movie_url, title, poster))
+            # Extract year from title if present
+            year = None
+            m_year = re.search(r'\b(19|20)\d{2}\b', title)
+            if m_year:
+                year = int(m_year.group(0))
 
-        candidates = candidates[:30]
-        sem = asyncio.Semaphore(6)
+            results.append(SearchResult(
+                title=title,
+                url=movie_url,
+                year=year,
+                source=self.name,
+                poster=poster,
+                language="en" if "-english" in movie_url.lower() or "english" in title.lower() else "de"
+            ))
 
-        async def resolve_candidate(idx: int, movie_url: str, title: str, poster: str | None) -> SearchResult:
-            if idx >= 15:
-                return SearchResult(
-                    title=title,
-                    url=movie_url,
-                    source=self.name,
-                    poster=poster,
-                    language="en" if "-english" in movie_url.lower() or "english" in title.lower() else "de"
-                )
-            async with sem:
-                try:
-                    detail_html = await get(movie_url)
-                    info = await self._parse_detail_page(movie_url, detail_html)
-                    if info:
-                        if not info.poster:
-                            info.poster = poster
-                        return info
-                except Exception as e:
-                    log.warning("filmpalast: failed to fetch/parse details for %s: %s", movie_url, e)
-
-                # Fallback to rough search page info
-                return SearchResult(
-                    title=title,
-                    url=movie_url,
-                    source=self.name,
-                    poster=poster,
-                    language="en" if "-english" in movie_url.lower() or "english" in title.lower() else "de"
-                )
-
-        results = await asyncio.gather(*[resolve_candidate(idx, url, title, post) for idx, (url, title, post) in enumerate(candidates)])
-        return list(results)
+        return results[:30]
 
     async def _parse_detail_page(self, movie_url: str, html: str) -> SearchResult | None:
         title = extract_title(html)
@@ -143,7 +131,9 @@ class FilmpalastScraper(BaseScraper):
         # Extract poster
         m_poster = re.search(r'<div\s+id="poster"[^>]*>.*?src="([^"]+)"', html, re.DOTALL | re.IGNORECASE)
         if not m_poster:
-            m_poster = re.search(r'src="([^"]+)"[^>]*class="cover-opacity"', html, re.IGNORECASE)
+            m_poster = re.search(r'src="([^"]+)"[^>]*class="[^"]*cover[^"]*"', html, re.IGNORECASE)
+        if not m_poster:
+            m_poster = re.search(r'class="[^"]*cover[^"]*"[^>]*src="([^"]+)"', html, re.IGNORECASE)
         poster = m_poster.group(1).strip() if m_poster else None
         if poster:
             if poster.startswith("//"):
@@ -151,14 +141,93 @@ class FilmpalastScraper(BaseScraper):
             elif poster.startswith("/"):
                 poster = BASE + poster
 
+        # Extract hosters
+        blocks = html.split('<li class="hostBg rb">')
+        hosters = []
+        for b in blocks[1:]:
+            name_m = re.search(r'<p\s+class="hostName">([^<]+)</p>', b, re.IGNORECASE)
+            if name_m:
+                hosters.append(name_m.group(1).replace(" HD", "").strip())
+
         return SearchResult(
             title=title,
             url=movie_url,
             year=year,
             source=self.name,
             poster=poster,
-            language=language
+            language=language,
+            hosters=hosters
         )
+
+    async def discover(self, page: int = 1, category: str | None = None) -> list[SearchResult]:
+        if category == "series":
+            url = f"{BASE}/serien/view/page/{page}"
+        elif category == "popular":
+            url = f"{BASE}/movies/top/page/{page}"
+        else:
+            url = f"{BASE}/movies/new/page/{page}"
+
+        try:
+            html = await get(url)
+        except Exception as e:
+            log.warning("filmpalast discover failed: %s", e)
+            return []
+
+        articles = html.split('<article class="liste')
+        results = []
+
+        for art in articles[1:]:
+            h2_m = re.search(r'<h2[^>]*>(.*?)</h2>', art, re.DOTALL | re.IGNORECASE)
+            if not h2_m:
+                continue
+            h2_content = h2_m.group(1)
+            href_m = re.search(r'href="([^"]+)"', h2_content, re.IGNORECASE)
+            if not href_m:
+                continue
+
+            movie_url = href_m.group(1).strip()
+
+            title_m = re.search(r'title="([^"]+)"', h2_content, re.IGNORECASE)
+            if title_m:
+                title = title_m.group(1).strip()
+            else:
+                title_anchor_m = re.search(r'<a[^>]*>(.*?)</a>', h2_content, re.IGNORECASE)
+                if not title_anchor_m:
+                    continue
+                title = re.sub(r'<[^>]+>', '', title_anchor_m.group(1)).strip()
+
+            if movie_url.startswith("//"):
+                movie_url = "https:" + movie_url
+            elif movie_url.startswith("/"):
+                movie_url = BASE + movie_url
+
+            poster = None
+            m_poster = re.search(r'<img\s+[^>]*src="([^"]+)"[^>]*class="[^"]*cover[^"]*"', art, re.IGNORECASE)
+            if not m_poster:
+                m_poster = re.search(r'<img\s+[^>]*class="[^"]*cover[^"]*"[^>]*src="([^"]+)"', art, re.IGNORECASE)
+            if m_poster:
+                poster = m_poster.group(1).strip()
+                if poster.startswith("//"):
+                    poster = "https:" + poster
+                elif poster.startswith("/"):
+                    poster = BASE + poster
+
+            # Extract year from title if present
+            year = None
+            m_year = re.search(r'\b(19|20)\d{2}\b', title)
+            if m_year:
+                year = int(m_year.group(0))
+
+            results.append(SearchResult(
+                title=title,
+                url=movie_url,
+                year=year,
+                source=self.name,
+                poster=poster,
+                language="en" if "-english" in movie_url.lower() or "english" in title.lower() else "de"
+            ))
+
+        return results[:30]
 
     async def get_stream(self, movie_url: str) -> StreamCandidate:
         html = await get(movie_url)

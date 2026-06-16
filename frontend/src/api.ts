@@ -47,6 +47,8 @@ export interface SearchResult {
   source: string;
   poster: string | null;
   slug: string | null;
+  language?: string | null;
+  hosters?: string[] | null;
 }
 
 async function j<T>(r: Response): Promise<T> {
@@ -125,6 +127,23 @@ export const api = {
     fetch(`/api/search?source=${encodeURIComponent(source)}&q=${encodeURIComponent(q)}`).then(
       (r) => j<SearchResult[]>(r)
     ),
+  getCatalog: (
+    source: ItemSource,
+    category?: string,
+    page?: number,
+    language?: string,
+    hoster?: string,
+    sort?: string
+  ) => {
+    const params = new URLSearchParams();
+    params.append("source", source);
+    if (category) params.append("category", category);
+    if (page) params.append("page", page.toString());
+    if (language) params.append("language", language);
+    if (hoster) params.append("hoster", hoster);
+    if (sort) params.append("sort", sort);
+    return fetch(`/api/search/catalog?${params.toString()}`).then((r) => j<SearchResult[]>(r));
+  },
   listSeasons: (source: ItemSource, slug: string) =>
     fetch(
       `/api/search/seasons?source=${encodeURIComponent(source)}&slug=${encodeURIComponent(slug)}`
