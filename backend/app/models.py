@@ -37,6 +37,9 @@ class ItemSource(str, Enum):
     STO = "s.to"
     ANIWORLD = "aniworld"
     MEGAKINO = "megakino"
+    FILMPALAST = "filmpalast.to"
+    BURNING_SERIES = "burning-series.io"
+    KINOX = "kinox.to"
 
 
 class QueueItem(SQLModel, table=True):

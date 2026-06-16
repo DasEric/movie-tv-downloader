@@ -76,6 +76,8 @@ class SettingsUpdateRequest(BaseModel):
     discord_upload_channel_id: Optional[str] = None
     discord_request_role_id: Optional[str] = None
     discord_guild_id: Optional[str] = None
+    # --- cloudflare fallback ---
+    cloudflare_fallback_enabled: Optional[bool] = None
 
 
 class SearchRequest(BaseModel):

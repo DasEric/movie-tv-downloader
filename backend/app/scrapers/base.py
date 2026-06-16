@@ -12,6 +12,7 @@ class SearchResult:
     year: int | None = None
     source: str = ""
     poster: str | None = None
+    language: str | None = None
 
 
 @dataclass

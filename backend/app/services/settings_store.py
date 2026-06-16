@@ -34,6 +34,8 @@ DEFAULT_KEYS: dict[str, Any] = {
     "discord_upload_channel_id": lambda: env_settings.discord_upload_channel_id or "",
     "discord_request_role_id": lambda: env_settings.discord_request_role_id or "",
     "discord_guild_id": lambda: env_settings.discord_guild_id or "",
+    # --- cloudflare fallback ---
+    "cloudflare_fallback_enabled": lambda: True,
 }
 
 

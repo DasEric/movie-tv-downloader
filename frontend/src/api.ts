@@ -1,6 +1,6 @@
 // Thin fetch wrapper. Same-origin — FastAPI serves both API and built frontend.
 
-export type ItemSource = "s.to" | "aniworld" | "megakino";
+export type ItemSource = "s.to" | "aniworld" | "megakino" | "filmpalast.to" | "burning-series.io" | "kinox.to";
 export type ItemKind = "movie" | "episode" | "season";
 export type ItemStatus =
   | "queued"

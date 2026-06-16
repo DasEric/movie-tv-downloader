@@ -4,11 +4,10 @@ from __future__ import annotations
 import logging
 import re
 import time
-from difflib import SequenceMatcher, get_close_matches
+from difflib import get_close_matches
 from pathlib import Path
 
 from fastapi import APIRouter, Query
-from slugify import slugify as _slugify
 
 from app.config import settings
 
@@ -24,25 +23,22 @@ _STRIP_YEAR = re.compile(r"\s*\(\d{4}\)\s*$")
 _STRIP_STAFFEL = re.compile(r"\s*[Ss]taffel\s+\d+\s*$")
 _NON_ALNUM = re.compile(r"[^a-z0-9 ]+")
 _MULTI_SPACE = re.compile(r"\s+")
-_LEADING_ARTICLE = re.compile(r"^(?:the|a|an|der|die|das|ein|eine)\s+", re.IGNORECASE)
 
 
 def _normalize(name: str) -> str:
-    """Aggressive normalization for matching: transliterate unicode,
-    lowercase, strip year/staffel suffix, remove all non-alphanumeric
-    chars, collapse whitespace.
+    """Aggressive normalization for matching: lowercase, strip year/staffel
+    suffix, remove all non-alphanumeric chars, collapse whitespace.
 
     Examples:
-        "Grey's Anatomy"           -> "greys anatomy"
-        "Türkisch für Anfänger"    -> "turkisch fur anfanger"
-        "The Flash (2014)"         -> "the flash"
-        "Dr. House"                -> "dr house"
-        "The Rookie Staffel 1"     -> "the rookie"
+        "Grey's Anatomy"         -> "greys anatomy"
+        "Marvel's Agents of S.H.I.E.L.D." -> "marvels agents of shield"
+        "The Flash (2014)"       -> "the flash"
+        "Dr. House"              -> "dr house"
+        "The Rookie Staffel 1"   -> "the rookie"
     """
-    s = name.strip()
+    s = name.strip().lower()
     s = _STRIP_YEAR.sub("", s)
     s = _STRIP_STAFFEL.sub("", s)
-    s = _slugify(s, separator=" ", lowercase=True)
     s = _NON_ALNUM.sub("", s)
     s = _MULTI_SPACE.sub(" ", s).strip()
     return s
@@ -93,11 +89,10 @@ def _find_show_dir(title: str) -> Path | None:
     Uses a multi-tier strategy:
       1. Exact case-insensitive match
       2. Normalized match (strips punctuation, years, 'Staffel X')
-      3. Fuzzy match on normalized names (cutoff 0.65)
+      3. Fuzzy match on normalized names (cutoff 0.6)
     """
     tv = settings.tv_path
     if not tv.is_dir():
-        log.warning("tv_path %s is not a directory", tv)
         return None
 
     # Build indexes: lowercase -> Path  AND  normalized -> Path
@@ -111,64 +106,25 @@ def _find_show_dir(title: str) -> Path | None:
                 if n:
                     norm_dirs[n] = d
     except OSError:
-        log.warning("failed to list tv_path %s", tv, exc_info=True)
         return None
 
     # Tier 1: exact case-insensitive
     lower = title.lower().strip()
     if lower in dirs:
-        log.debug("show %r matched tier-1 (exact) → %s", title, dirs[lower])
         return dirs[lower]
 
     # Tier 2: normalized exact match
     norm_title = _normalize(title)
     if norm_title and norm_title in norm_dirs:
-        log.debug("show %r matched tier-2 (normalized) → %s", title, norm_dirs[norm_title])
         return norm_dirs[norm_title]
 
-    # Tier 3: fuzzy on normalized names
+    # Tier 3: fuzzy on normalized names (more lenient cutoff)
     if norm_title:
         norm_candidates = list(norm_dirs.keys())
-        matches = get_close_matches(norm_title, norm_candidates, n=1, cutoff=0.65)
+        matches = get_close_matches(norm_title, norm_candidates, n=1, cutoff=0.6)
         if matches:
-            candidate = matches[0]
-            ratio = SequenceMatcher(None, norm_title, candidate).ratio()
-            # Reject the match when one name is a strict prefix of the
-            # other with substantial extra content — those are different
-            # series that only share a name prefix (e.g. "Malcolm
-            # Mittendrin" vs "Malcolm Mittendrin: Unfair wie immer").
-            a, b = sorted([candidate, norm_title], key=len)
-            if b.startswith(a) and len(b) - len(a) >= 4:
-                log.debug(
-                    "show %r fuzzy candidate %r rejected (prefix guard, ratio=%.2f)",
-                    title, candidate, ratio,
-                )
-                return None
-            # Reject when similarity is only due to a shared leading
-            # article ("The", "A", etc.).  Strip articles and re-check
-            # the distinctive parts — if those diverge, the shows are
-            # unrelated (e.g. "The Boys" vs "The Fosters").
-            core_title = _LEADING_ARTICLE.sub("", norm_title)
-            core_cand = _LEADING_ARTICLE.sub("", candidate)
-            if core_title != norm_title or core_cand != candidate:
-                core_ratio = SequenceMatcher(None, core_title, core_cand).ratio()
-                if core_ratio < 0.6:
-                    log.debug(
-                        "show %r fuzzy candidate %r rejected (article guard, "
-                        "core_ratio=%.2f)",
-                        title, candidate, core_ratio,
-                    )
-                    return None
-            log.debug(
-                "show %r matched tier-3 (fuzzy, ratio=%.2f) → %s",
-                title, ratio, norm_dirs[candidate],
-            )
-            return norm_dirs[candidate]
+            return norm_dirs[matches[0]]
 
-    log.info(
-        "show %r not found on disk (norm=%r, %d folders scanned)",
-        title, norm_title, len(dirs),
-    )
     return None
 
 
@@ -343,21 +299,6 @@ async def check_movie(
             # Fuzzy on normalized names
             if norm_title and norm_file:
                 matches = get_close_matches(norm_title, [norm_file], n=1, cutoff=0.65)
-                # Guard: don't treat a prefix-match with substantial
-                # extra content as the same title (e.g. "Malcolm
-                # Mittendrin" vs "Malcolm Mittendrin Unfair wie immer").
-                if matches:
-                    a, b = sorted([norm_title, norm_file], key=len)
-                    if b.startswith(a) and len(b) - len(a) >= 4:
-                        matches = []
-                # Guard: reject when similarity comes only from a shared
-                # leading article (e.g. "The Boys" vs "The Fosters").
-                if matches:
-                    ct = _LEADING_ARTICLE.sub("", norm_title)
-                    cf = _LEADING_ARTICLE.sub("", norm_file)
-                    if (ct != norm_title or cf != norm_file) and \
-                       SequenceMatcher(None, ct, cf).ratio() < 0.6:
-                        matches = []
             else:
                 matches = get_close_matches(lower, [name_lower], n=1, cutoff=0.75)
             if matches:

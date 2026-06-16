@@ -62,7 +62,7 @@ You open the Web-UI → search for a show or movie → click → pick episodes
 Everything happens inside **one** container — no Redis, no Celery, no
 FlareSolverr, no headless browser. FastAPI hosts both the REST API and
 the React frontend; `curl_cffi` bypasses Cloudflare by impersonating a
-real Chrome TLS fingerprint;
+real Chrome TLS fingerprint (with an optional `cloudscraper` fallback);
 `yt-dlp` handles the actual download; `ffmpeg` does the post-processing;
 the embedded `discord.py` bot runs in the same event loop.
 
@@ -122,7 +122,8 @@ the embedded `discord.py` bot runs in the same event loop.
   configurable)
 - 🔀 Dynamic Megakino domain resolution via community domain tracker
 - 🛡 **Cloudflare bypass** without a headless browser
-  (`curl_cffi` Chrome TLS impersonation)
+  (`curl_cffi` Chrome impersonation by default, with an opt-in
+  `cloudscraper` fallback toggle for the rare stubborn challenges)
 - 🌀 Optional SOCKS5 / HTTP proxy support
 
 ### UI
@@ -386,7 +387,8 @@ anyway — but **strongly** recommended for release-date metadata and the
 │   └── Mode: standard (owner-approved) | advanced (auto)     │
 │                                                             │
 │   HTTP stack                                                │
-│   └── curl_cffi — Chrome TLS fingerprint                    │
+│   ├── curl_cffi — Chrome TLS fingerprint (primary)          │
+│   └── cloudscraper — optional fallback on CF interstitial   │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -396,7 +398,8 @@ Why one container works:
 - **No Redis** — an `asyncio.Semaphore` bounds concurrency, SQLite
   persists the queue
 - **No FlareSolverr** — `curl_cffi`'s Chrome-TLS impersonation sails
-  through Cloudflare's Turnstile on all three sites
+  through Cloudflare's Turnstile on all three sites; the opt-in
+  `cloudscraper` fallback handles the stubborn edge cases
 - **No Celery worker** — the queue runs in the same event loop as the
   API, interrupted items are re-queued on startup
 - **No separate bot process** — `discord.py` runs in the same event
@@ -640,6 +643,14 @@ From there:
   - Requests for content **already complete on disk** short-circuit
     with a friendly "already available" DM to the user
 
+### Cloudflare fallback toggle
+
+On the Discord bot settings card there's a **"Cloudflare fallback
+enabled"** switch (default: yes). This controls whether the backend is
+allowed to fall back to `cloudscraper` when `curl_cffi` hits a "Just
+a moment…" interstitial. Leave it on unless you've configured a proxy
+that handles CF itself.
+
 ### Live status badge
 
 Next to the *Discord bot* section header, a tag shows the real-time bot
@@ -700,9 +711,10 @@ yet). Click **Retry** on the item in a few hours.
 
 ### "Cloudflare / captcha challenge"
 `curl_cffi`'s Chrome impersonation is *usually* enough. If you see
-persistent 403s with "Just a moment…" in the body, open s.to in your
-browser, solve the captcha manually, then retry the download. If that
-doesn't help, wait 10-15 minutes and retry, or set `PROXY_URL` to a
+persistent 403s with "Just a moment…" in the body, make sure
+**Settings → Discord bot → Cloudflare fallback** is on (default: yes)
+— that lets the backend retry the request via `cloudscraper`. If even
+that fails, wait 10-15 minutes and retry, or set `PROXY_URL` to a
 residential proxy.
 
 ### No posters for series
@@ -813,7 +825,8 @@ all survive updates because they live in the `/config` volume.
 |---|---|
 | Frontend | React 18 + Vite + TypeScript + react-i18next (Space Grotesk / IBM Plex Mono / Instrument Serif) |
 | Backend | FastAPI + SQLModel + aiosqlite + APScheduler |
-| HTTP | `curl_cffi` (Chrome TLS fingerprint) |
+| HTTP (primary) | `curl_cffi` (Chrome TLS fingerprint) |
+| HTTP (fallback) | `cloudscraper` (opt-in, for stubborn Cloudflare challenges) |
 | Downloader | `yt-dlp` nightly |
 | Post-processing | `ffmpeg` (H.264/AAC MP4) |
 | Subtitles | `subliminal` (optional) |
@@ -837,3 +850,5 @@ from [`Yezun-hikari/Megakino-Downloader`](https://github.com/Yezun-hikari/Megaki
 (MIT) for the Megakino extractor and the community-maintained domain
 tracker it uses.
 
+The Cloudflare fallback uses [`VeNoMouS/cloudscraper`](https://github.com/VeNoMouS/cloudscraper)
+(MIT) vendored into the image at build time.

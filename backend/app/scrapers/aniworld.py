@@ -86,47 +86,36 @@ class AniworldScraper(BaseScraper):
 
     async def search(self, query: str) -> list[SearchResult]:
         """
-        Three-strategy search (same pattern as the s.to scraper):
+        Two-strategy search (same pattern as the s.to scraper):
 
           1. Direct URL paste → extract slug, fetch page, populate poster.
-          2. AJAX search on `/ajax/search?keyword=...` — the real site
-             search. Case-insensitive, supports partial titles, returns
-             every matching show.
-          3. Slug fallback: slugify → fetch page. Only kicks in when the
-             AJAX endpoint returns nothing.
+          2. Slug fallback:    slugify → fetch page, populate poster.
+
+        In both cases we fetch the show page and pull out the poster +
+        canonical title, so the grid card has everything it needs without
+        a second round-trip.
         """
         query = query.strip()
-        if not query:
-            return []
 
         if query.startswith("http"):
             slug = slug_from_url(query)
             if not slug:
                 return []
-            return await self._fetch_show_as_result(slug)
+        else:
+            slug = slugify(query, separator="-", lowercase=True)
+            if not slug:
+                return []
 
-        try:
-            ajax = await self._ajax_search(query)
-        except Exception as e:
-            log.warning("aniworld ajax search %r failed: %s", query, e)
-            ajax = []
-        if ajax:
-            return ajax
-
-        slug = slugify(query, separator="-", lowercase=True)
-        if not slug:
-            return []
-        return await self._fetch_show_as_result(slug)
-
-    async def _fetch_show_as_result(self, slug: str) -> list[SearchResult]:
         url = f"{BASE}/anime/stream/{slug}"
         try:
             html = await get(url)
         except Exception as e:
-            log.info("aniworld slug fetch %r failed: %s", slug, e)
+            log.info("aniworld slug fallback %r failed: %s", slug, e)
             return []
+
         poster = absolutize(extract_poster(html), BASE)
         title = extract_title(html, slug.replace("-", " ").title())
+
         return [
             SearchResult(
                 title=title,
@@ -135,31 +124,6 @@ class AniworldScraper(BaseScraper):
                 poster=poster,
             )
         ]
-
-    async def _ajax_search(self, query: str) -> list[SearchResult]:
-        """
-        GET `/ajax/seriesSearch?keyword=<query>` — aniworld's JSON search.
-
-        Response: JSON array of {name, link, description, cover,
-        productionYear}. `link` is a bare slug; `cover` is a relative
-        path we resolve against BASE so the grid card shows a poster
-        immediately.
-        """
-        from app.scrapers.sto import _loads_unescaped, _parse_aniworld_search
-
-        client = await get_client()
-        r = await client.get(
-            f"{BASE}/ajax/seriesSearch",
-            params={"keyword": query},
-            headers={
-                "X-Requested-With": "XMLHttpRequest",
-                "Accept": "application/json",
-                "Referer": f"{BASE}/",
-            },
-        )
-        r.raise_for_status()
-        data = _loads_unescaped(r.text)
-        return _parse_aniworld_search(data, BASE, self.name)
 
     async def list_seasons(self, slug: str) -> list[int]:
         html = await get(f"{BASE}/anime/stream/{slug}")
@@ -203,6 +167,25 @@ class AniworldScraper(BaseScraper):
         )
         return resolved is not None
 
+    async def _get_season_candidates(
+        self, slug: str, season: int, language: str, candidates: list[str]
+    ) -> list[str]:
+        # Robust fallback control: if the user wants German, but German is not yet available for this episode,
+        # we check if other episodes in this season have German. If they do, we do NOT fall back to English
+        # (we want to wait for the German release). We only fall back to English if the entire season has
+        # no German releases at all.
+        if language in ("de", "de-dub", "de-sub") and any("en" in c for c in candidates):
+            try:
+                season_url = f"{BASE}/anime/stream/{slug}/staffel-{season}"
+                season_html = await get(season_url)
+                has_german_in_season = ("german.svg" in season_html or "japanese-german.svg" in season_html)
+                if has_german_in_season:
+                    # Prune English candidates
+                    candidates = [c for c in candidates if "en" not in c]
+            except Exception as e:
+                log.warning("Failed to fetch season page to verify language fallback: %s", e)
+        return candidates
+
     async def resolve_episode_language(
         self, slug: str, season: int, episode: int, language: str
     ) -> str | None:
@@ -221,6 +204,7 @@ class AniworldScraper(BaseScraper):
 
         # Try requested language first, then each fallback
         candidates = [language] + LANG_FALLBACK.get(language, [])
+        candidates = await self._get_season_candidates(slug, season, language, candidates)
         for lang in candidates:
             key = LANG_KEY.get(lang, "1")
             if self._parse_providers(html, key):
@@ -233,6 +217,7 @@ class AniworldScraper(BaseScraper):
 
         # Walk the fallback chain: e.g. GerDub -> GerSub -> EngSub
         candidates = [ep.language] + LANG_FALLBACK.get(ep.language, [])
+        candidates = await self._get_season_candidates(ep.slug, ep.season, ep.language, candidates)
         hosters: list[dict] = []
         actual_lang = ep.language
         for lang in candidates:
@@ -286,7 +271,7 @@ class AniworldScraper(BaseScraper):
                         url=direct,
                         hoster=h["provider"],
                         language=actual_lang,
-                        headers=headers_for(h["provider"], embed_url),
+                        headers=headers_for(h["provider"]),
                     )
             except Exception as e:
                 last_err = e

@@ -173,6 +173,62 @@ async def _check_releases() -> None:
     queue_manager._wake.set()
 
 
+import html
+import re
+
+def _clean_title_for_comparison(title: str) -> str:
+    title = html.unescape(title).lower()
+    replacements = {
+        "ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss",
+        "é": "e", "è": "e", "ê": "e", "á": "a", "à": "a", "ô": "o"
+    }
+    for k, v in replacements.items():
+        title = title.replace(k, v)
+    title = re.sub(r'[^a-z0-9\s]', ' ', title)
+    return ' '.join(title.split())
+
+def _is_movie_match(expected_title: str, expected_year: int | None, expected_lang: str, hit) -> bool:
+    if expected_year and hit.year:
+        if abs(expected_year - hit.year) > 1:
+            return False
+
+    if hit.language and expected_lang:
+        expected_lang_norm = "de" if expected_lang.startswith("de") else "en"
+        hit_lang_norm = "de" if hit.language.startswith("de") else "en"
+        if expected_lang_norm != hit_lang_norm:
+            return False
+
+    clean_expected = _clean_title_for_comparison(expected_title)
+    clean_found = _clean_title_for_comparison(hit.title)
+
+    if hit.year:
+        clean_found = clean_found.replace(str(hit.year), "").strip()
+    if expected_year:
+        clean_expected = clean_expected.replace(str(expected_year), "").strip()
+
+    clean_expected = ' '.join(clean_expected.split())
+    clean_found = ' '.join(clean_found.split())
+
+    expected_tokens = set(clean_expected.split())
+    found_tokens = set(clean_found.split())
+
+    if not expected_tokens or not found_tokens:
+        return False
+
+    expected_numbers = {t for t in expected_tokens if t.isdigit()}
+    found_numbers = {t for t in found_tokens if t.isdigit()}
+    if expected_numbers and not expected_numbers.issubset(found_numbers):
+        return False
+    if found_numbers - expected_numbers:
+        return False
+
+    intersection = expected_tokens.intersection(found_tokens)
+    is_subset = expected_tokens.issubset(found_tokens) or found_tokens.issubset(expected_tokens)
+    overlap_ratio = len(intersection) / len(expected_tokens)
+
+    return is_subset or overlap_ratio >= 0.7
+
+
 async def _probe_item(it: QueueItem) -> None:
     """
     Check if `it.title` is now available on its configured source site.
@@ -183,22 +239,20 @@ async def _probe_item(it: QueueItem) -> None:
     """
     now_iso = utcnow().strftime("%Y-%m-%d %H:%M")
 
-    # --- MOVIE path (megakino) ---
+    # --- MOVIE path (megakino, filmpalast, kinox) ---
     if it.kind == ItemKind.MOVIE:
-        if it.source != ItemSource.MEGAKINO:
+        if it.source not in (ItemSource.MEGAKINO, ItemSource.FILMPALAST, ItemSource.KINOX):
             log.debug(
                 "upcoming movie #%d has unsupported source %s", it.id, it.source
             )
             return
 
         scraper = get_scraper(it.source)
-        if not isinstance(scraper, MegakinoScraper):
-            return
 
         try:
             hits = await scraper.search(it.title)
         except Exception as e:
-            log.warning("megakino search for %r failed: %s", it.title, e)
+            log.warning("%s search for %r failed: %s", it.source, it.title, e)
             await queue_manager.update(
                 it.id, message=f"checked {now_iso} — search error"
             )
@@ -210,30 +264,40 @@ async def _probe_item(it: QueueItem) -> None:
             )
             return
 
-        # Take the first result. (We trust TMDB-resolved titles to be specific.)
-        best = hits[0]
+        # Find the first result that matches title, year, and language
+        expected_year = it.release_date.year if it.release_date else None
+        best = None
+        for hit in hits:
+            if _is_movie_match(it.title, expected_year, it.language, hit):
+                best = hit
+                break
+
+        if not best:
+            await queue_manager.update(
+                it.id, message=f"checked {now_iso} — similar releases found but none matched year/title/language"
+            )
+            return
+
         log.info("upcoming movie #%d available: %s", it.id, best.url)
         await queue_manager.update(
             it.id,
             status=ItemStatus.QUEUED,
             url=best.url,
-            message=f"released — found on megakino",
+            message=f"released — found on {it.source.value}",
         )
         return
 
     # --- SEASON path (s.to / aniworld TV shows) ---
     if it.kind == ItemKind.SEASON:
-        if it.source not in (ItemSource.STO, ItemSource.ANIWORLD):
+        if it.source not in (ItemSource.STO, ItemSource.ANIWORLD, ItemSource.BURNING_SERIES, ItemSource.KINOX):
             return
         if not it.season:
             log.warning("upcoming season #%d has no season number", it.id)
             return
 
         scraper = get_scraper(it.source)
-        if not isinstance(scraper, (StoScraper, AniworldScraper)):
-            return
 
-        # Slug search — returns at most one hit for s.to / aniworld
+        # Slug search — returns at most one hit for s.to / aniworld / etc
         try:
             hits = await scraper.search(it.title)
         except Exception as e:
@@ -253,12 +317,18 @@ async def _probe_item(it: QueueItem) -> None:
         hit = hits[0]
         if it.source == ItemSource.STO:
             from app.scrapers.sto import slug_from_url
-
             slug = slug_from_url(hit.url)
-        else:
+        elif it.source == ItemSource.ANIWORLD:
             from app.scrapers.aniworld import slug_from_url as aw_slug
-
             slug = aw_slug(hit.url)
+        elif it.source == ItemSource.BURNING_SERIES:
+            from app.scrapers.burningseries import slug_from_url as bs_slug
+            slug = bs_slug(hit.url)
+        elif it.source == ItemSource.KINOX:
+            from app.scrapers.kinox import slug_from_url as kx_slug
+            slug = kx_slug(hit.url)
+        else:
+            slug = None
 
         if not slug:
             await queue_manager.update(
@@ -403,13 +473,11 @@ async def _probe_season_watch(w: SeasonWatch) -> None:
         return
 
     # 2) List episodes on the source
-    if w.source not in (ItemSource.STO, ItemSource.ANIWORLD):
+    if w.source not in (ItemSource.STO, ItemSource.ANIWORLD, ItemSource.BURNING_SERIES, ItemSource.KINOX):
         log.warning("season watch #%s has unsupported source %s", w.id, w.source)
         return
 
     scraper = get_scraper(w.source)
-    if not isinstance(scraper, (StoScraper, AniworldScraper)):
-        return
 
     try:
         episodes = await scraper.list_episodes(w.slug, w.season)

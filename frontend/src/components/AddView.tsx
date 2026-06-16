@@ -9,8 +9,12 @@ const SOURCES: {
   languageLocked?: boolean;
 }[] = [
   { key: "s.to", label: "s.to", kind: "series" },
+  { key: "burning-series.io", label: "Burning Series", kind: "series" },
   { key: "aniworld", label: "AniWorld", kind: "series" },
   { key: "megakino", label: "Megakino (german only)", kind: "movie", languageLocked: true },
+  { key: "filmpalast.to", label: "FilmPalast (german/english)", kind: "movie" },
+  { key: "kinox.to", label: "KinoX (Movies)", kind: "movie" },
+  { key: "kinox.to", label: "KinoX (Series)", kind: "series" },
 ];
 
 export function AddView() {

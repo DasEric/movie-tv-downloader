@@ -36,6 +36,8 @@ PROVIDER_HEADERS: dict[str, dict[str, str]] = {
         "Accept-Language": "en-US,en;q=0.5",
         "Accept-Encoding": "gzip, deflate",
         "Connection": "keep-alive",
+        "Referer": "https://voe.sx/",
+        "Origin": "https://voe.sx",
     },
     "vidmoly": {"Referer": "https://vidmoly.biz"},
     "vidoza": {},
@@ -44,18 +46,11 @@ PROVIDER_HEADERS: dict[str, dict[str, str]] = {
 }
 
 
-def headers_for(hoster: str, embed_url: str | None = None) -> dict[str, str]:
+def headers_for(hoster: str) -> dict[str, str]:
     key = (hoster or "").lower()
     for k, h in PROVIDER_HEADERS.items():
         if k in key:
-            out = dict(h)
-            if embed_url and "voe" in key:
-                from urllib.parse import urlparse
-                p = urlparse(embed_url)
-                origin = f"{p.scheme}://{p.netloc}"
-                out["Referer"] = f"{origin}/"
-                out["Origin"] = origin
-            return out
+            return h
     return {}
 
 
@@ -117,15 +112,10 @@ def _voe_extract_source_from_html(html: str) -> str | None:
 
 async def resolve_voe(embed_url: str) -> str | None:
     c = await get_client()
-    headers = headers_for("voe", embed_url)
+    headers = headers_for("voe")
     r = await c.get(embed_url, headers=headers, allow_redirects=True)
     r.raise_for_status()
     html = r.text
-    final_url = str(r.url)
-
-    # Update headers if VOE redirected to a different domain
-    if final_url != embed_url:
-        headers = headers_for("voe", final_url)
 
     src = _voe_extract_source_from_html(html)
     if src:
@@ -134,18 +124,15 @@ async def resolve_voe(embed_url: str) -> str | None:
     # Fallback: follow the first http URL embedded in the page
     m = _VOE_REDIRECT_RE.search(html)
     if m:
-        try:
-            r2 = await c.get(m.group(0), headers=headers, allow_redirects=True)
-            r2.raise_for_status()
-            html2 = r2.text
-            src = _voe_extract_source_from_html(html2)
-            if src:
-                return src
-            m2 = re.search(r"https?://\S+?\.m3u8\S*", html2)
-            if m2:
-                return m2.group(0)
-        except Exception as e:
-            log.debug("VOE redirect fallback failed: %s", e)
+        r2 = await c.get(m.group(0), headers=headers, allow_redirects=True)
+        r2.raise_for_status()
+        html2 = r2.text
+        src = _voe_extract_source_from_html(html2)
+        if src:
+            return src
+        m2 = re.search(r"https?://\S+?\.m3u8\S*", html2)
+        if m2:
+            return m2.group(0)
 
     # Last-resort: look for any m3u8 on the original page
     m3 = re.search(r"https?://\S+?\.m3u8\S*", html)

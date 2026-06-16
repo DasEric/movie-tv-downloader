@@ -14,17 +14,14 @@ import time
 import uuid
 
 from app.config import settings
-from app.models import ItemKind, ItemStatus
+from app.models import ItemKind, ItemStatus, ItemSource
 from app.queue_manager import queue_manager
 from app.scrapers import get_scraper
-from app.scrapers.aniworld import AniworldScraper
 from app.scrapers.base import EpisodeRef
-from app.scrapers.megakino import MegakinoScraper
-from app.scrapers.sto import StoScraper
 from app.services import notifications, settings_store, subtitles
 from app.services.captcha import CaptchaRequiredError
 from app.services.downloader import download
-from app.services.postprocess import finalize_movie, finalize_tv, remux_subtitles
+from app.services.postprocess import finalize_movie, finalize_tv
 
 log = logging.getLogger(__name__)
 
@@ -64,7 +61,7 @@ async def process_item(item_id: int) -> None:
 
         # ---- resolve stream ----
         if item.kind == ItemKind.MOVIE:
-            if not isinstance(scraper, MegakinoScraper):
+            if item.source not in (ItemSource.MEGAKINO, ItemSource.FILMPALAST, ItemSource.KINOX):
                 raise RuntimeError(
                     f"{item.source} does not support movies in this build"
                 )
@@ -72,7 +69,7 @@ async def process_item(item_id: int) -> None:
                 raise RuntimeError("movie item without URL")
             stream = await scraper.get_stream(item.url)
         elif item.kind == ItemKind.EPISODE:
-            if not isinstance(scraper, (StoScraper, AniworldScraper)):
+            if item.source not in (ItemSource.STO, ItemSource.ANIWORLD, ItemSource.BURNING_SERIES, ItemSource.KINOX):
                 raise RuntimeError(f"{item.source} does not support episodes")
             if not (item.slug and item.season and item.episode):
                 raise RuntimeError("episode item missing slug/season/episode")
@@ -143,13 +140,11 @@ async def process_item(item_id: int) -> None:
                 raw_path, item.title, item.season or 1, item.episode or 1
             )
 
-        # ---- subtitles (fetch + embed into mp4) ----
+        # ---- subtitles ----
         try:
-            srt_files = await subtitles.fetch_for(final_path)
-            if srt_files:
-                await remux_subtitles(final_path, srt_files)
+            await subtitles.fetch_for(final_path)
         except Exception as e:
-            log.warning("subtitle fetch/remux failed: %s", e)
+            log.warning("subtitle fetch failed: %s", e)
 
         # ---- done ----
         await queue_manager.update(

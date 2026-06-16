@@ -15,7 +15,7 @@ from typing import Optional
 from sqlmodel import select
 
 from app.db import session_scope
-from app.models import ItemKind, ItemStatus, QueueItem, utcnow
+from app.models import ItemStatus, QueueItem, utcnow
 from app.services import events, settings_store
 
 log = logging.getLogger(__name__)
@@ -78,13 +78,6 @@ class QueueManager:
 
     async def add(self, item: QueueItem) -> QueueItem:
         async with session_scope() as s:
-            # Duplicate check: skip if an identical item is already
-            # queued / in progress (not completed or failed).
-            dup = await self._find_duplicate(s, item)
-            if dup is not None:
-                log.debug("skipping duplicate of queue item %d", dup.id)
-                return dup
-
             max_order = (
                 await s.execute(
                     select(QueueItem.order_index).order_by(QueueItem.order_index.desc())
@@ -97,58 +90,6 @@ class QueueManager:
         events.publish("queue.added", item.model_dump(mode="json"))
         self._wake.set()
         return item
-
-    @staticmethod
-    async def _find_duplicate(s, item: QueueItem) -> QueueItem | None:
-        active_statuses = [
-            ItemStatus.QUEUED,
-            ItemStatus.SCRAPING,
-            ItemStatus.DOWNLOADING,
-            ItemStatus.PROCESSING,
-            ItemStatus.PAUSED,
-            ItemStatus.WAITING_RELEASE,
-        ]
-        q = (
-            select(QueueItem)
-            .where(
-                QueueItem.source == item.source,
-                QueueItem.kind == item.kind,
-                QueueItem.status.in_(active_statuses),
-            )
-        )
-        if item.kind == ItemKind.EPISODE:
-            q = q.where(
-                QueueItem.slug == item.slug,
-                QueueItem.season == item.season,
-                QueueItem.episode == item.episode,
-            )
-        elif item.kind == ItemKind.MOVIE:
-            q = q.where(QueueItem.title == item.title)
-        else:
-            return None
-        result = (await s.execute(q.limit(1))).scalars().first()
-        return result
-
-    async def queued_episodes(self, slug: str, season: int) -> set[int]:
-        """Return episode numbers already in the queue (active states)."""
-        active = [
-            ItemStatus.QUEUED, ItemStatus.SCRAPING, ItemStatus.DOWNLOADING,
-            ItemStatus.PROCESSING, ItemStatus.PAUSED, ItemStatus.WAITING_RELEASE,
-        ]
-        async with session_scope() as s:
-            rows = (
-                await s.execute(
-                    select(QueueItem.episode)
-                    .where(
-                        QueueItem.kind == ItemKind.EPISODE,
-                        QueueItem.slug == slug,
-                        QueueItem.season == season,
-                        QueueItem.status.in_(active),
-                        QueueItem.episode.isnot(None),
-                    )
-                )
-            ).scalars().all()
-        return {int(e) for e in rows if e is not None}
 
     async def list_items(self) -> list[QueueItem]:
         async with session_scope() as s:

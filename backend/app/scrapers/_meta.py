@@ -233,6 +233,8 @@ def extract_title(html: str, fallback: str = "") -> str:
             title = m.group(1).strip()
     if not title:
         return fallback
+    import html
+    title = html.unescape(title)
     # Strip nav-context prefixes/suffixes — always metadata, never part of
     # the actual name.
     title = _STAFFEL_SUFFIX_RE.sub("", title)
