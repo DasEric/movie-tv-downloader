@@ -238,6 +238,15 @@ async def process_item(item_id: int) -> None:
     finally:
         # Always remove the cancel flag so it doesn't leak across retries.
         _cancel_events.pop(item_id, None)
+        # Force garbage collection and return memory to the OS
+        try:
+            import gc
+            import ctypes
+            gc.collect()
+            libc = ctypes.CDLL("libc.so.6")
+            libc.malloc_trim(0)
+        except Exception:
+            pass
 
 
 # ------------- helpers -------------

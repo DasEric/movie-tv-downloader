@@ -17,6 +17,7 @@ restart.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -79,6 +80,13 @@ async def start() -> None:
         # tz-aware so APScheduler doesn't reinterpret it as local time
         next_run_time=datetime.now(timezone.utc),
     )
+    _scheduler.add_job(
+        _trim_memory,
+        "interval",
+        minutes=10,
+        id="memory_trim",
+        next_run_time=datetime.now(timezone.utc),
+    )
     _scheduler.start()
     log.info(
         "scheduler started (release check every %dm, tz=%s)",
@@ -109,6 +117,18 @@ async def reschedule_if_needed() -> None:
             log.info("scheduler interval changed to %dm", new_interval)
         except Exception as e:
             log.warning("reschedule failed: %s", e)
+
+
+async def _trim_memory() -> None:
+    try:
+        import gc
+        import ctypes
+        gc.collect()
+        libc = ctypes.CDLL("libc.so.6")
+        libc.malloc_trim(0)
+        log.debug("Scheduler: memory trimmed successfully via malloc_trim")
+    except Exception:
+        pass
 
 
 async def _check_releases() -> None:
@@ -361,22 +381,25 @@ async def _probe_item(it: QueueItem) -> None:
         # Filter by language availability — the user explicitly asked for
         # "in der Sprache die man will". Don't spawn items for episodes
         # that aren't actually available in the requested language yet.
-        available: list[int] = []
-        for ep in episodes:
-            try:
-                has_lang = await scraper.episode_has_language(
-                    slug, it.season, ep, it.language
-                )
-            except Exception as e:
-                log.warning(
-                    "upcoming #%d: lang check for E%02d failed: %s",
-                    it.id,
-                    ep,
-                    e,
-                )
-                continue
-            if has_lang:
-                available.append(ep)
+        sem = asyncio.Semaphore(5)
+
+        async def check_lang(ep: int) -> bool:
+            async with sem:
+                try:
+                    return await scraper.episode_has_language(
+                        slug, it.season, ep, it.language
+                    )
+                except Exception as e:
+                    log.warning(
+                        "upcoming #%d: lang check for E%02d failed: %s",
+                        it.id,
+                        ep,
+                        e,
+                    )
+                    return False
+
+        checks = await asyncio.gather(*[check_lang(ep) for ep in episodes])
+        available = [ep for ep, ok in zip(episodes, checks) if ok]
 
         if not available:
             await queue_manager.update(
@@ -506,24 +529,31 @@ async def _probe_season_watch(w: SeasonWatch) -> None:
         )
         return
 
+    sem = asyncio.Semaphore(5)
+
+    async def check_lang(ep: int) -> tuple[int, bool]:
+        async with sem:
+            try:
+                ok = await scraper.episode_has_language(
+                    w.slug, w.season, ep, w.language
+                )
+                return ep, ok
+            except Exception as e:
+                log.warning(
+                    "season watch #%s: language check E%02d failed: %s",
+                    w.id,
+                    ep,
+                    e,
+                )
+                return ep, False
+
+    checks = await asyncio.gather(*[check_lang(ep) for ep in new_candidates])
+
     spawned = 0
     language_missing = 0
     newly_enqueued: set[int] = set()
 
-    for ep in new_candidates:
-        try:
-            has_lang = await scraper.episode_has_language(
-                w.slug, w.season, ep, w.language
-            )
-        except Exception as e:
-            log.warning(
-                "season watch #%s: language check E%02d failed: %s",
-                w.id,
-                ep,
-                e,
-            )
-            continue
-
+    for ep, has_lang in checks:
         if not has_lang:
             language_missing += 1
             continue

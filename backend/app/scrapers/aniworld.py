@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 
 from slugify import slugify
 
@@ -80,6 +81,10 @@ _WATCH_RE = re.compile(
     r'<a\s+[^>]*class="watchEpisode"[^>]*href="([^"]+)"',
     re.DOTALL,
 )
+
+_season_german_cache: dict[tuple[str, int], tuple[float, bool]] = {}
+_SEASON_CACHE_TTL = 300.0  # 5 minutes cache TTL for season page checks
+
 
 class AniworldScraper(BaseScraper):
     name = "aniworld"
@@ -175,15 +180,27 @@ class AniworldScraper(BaseScraper):
         # (we want to wait for the German release). We only fall back to English if the entire season has
         # no German releases at all.
         if language in ("de", "de-dub", "de-sub") and any("en" in c for c in candidates):
-            try:
-                season_url = f"{BASE}/anime/stream/{slug}/staffel-{season}"
-                season_html = await get(season_url)
-                has_german_in_season = ("german.svg" in season_html or "japanese-german.svg" in season_html)
-                if has_german_in_season:
-                    # Prune English candidates
-                    candidates = [c for c in candidates if "en" not in c]
-            except Exception as e:
-                log.warning("Failed to fetch season page to verify language fallback: %s", e)
+            cache_key = (slug, season)
+            now = time.monotonic()
+            has_german_in_season = None
+            if cache_key in _season_german_cache:
+                ts, val = _season_german_cache[cache_key]
+                if now - ts < _SEASON_CACHE_TTL:
+                    has_german_in_season = val
+
+            if has_german_in_season is None:
+                try:
+                    season_url = f"{BASE}/anime/stream/{slug}/staffel-{season}"
+                    season_html = await get(season_url)
+                    has_german_in_season = ("german.svg" in season_html or "japanese-german.svg" in season_html)
+                    _season_german_cache[cache_key] = (now, has_german_in_season)
+                except Exception as e:
+                    log.warning("Failed to fetch season page to verify language fallback: %s", e)
+                    has_german_in_season = False
+
+            if has_german_in_season:
+                # Prune English candidates
+                candidates = [c for c in candidates if "en" not in c]
         return candidates
 
     async def resolve_episode_language(

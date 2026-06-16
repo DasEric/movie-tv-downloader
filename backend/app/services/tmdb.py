@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime
 from typing import Any
 
@@ -27,15 +28,35 @@ async def _lang() -> str:
     return _LANG_TAGS.get(str(code).lower(), "en-US")
 
 
+_cache: dict[str, tuple[float, dict]] = {}
+
+
 async def _get(path: str, params: dict[str, Any] | None = None) -> dict | None:
     key = await _key()
     if not key:
         return None
+
+    lang_val = await _lang()
+    params_str = ",".join(f"{k}={v}" for k, v in sorted((params or {}).items()))
+    cache_key = f"{path}:{lang_val}:{params_str}"
+
+    now = time.time()
+    
+    # Prune expired items to avoid memory growth
+    expired = [k for k, v in _cache.items() if now >= v[0]]
+    for k in expired:
+        _cache.pop(k, None)
+
+    if cache_key in _cache:
+        expire_time, cached_data = _cache[cache_key]
+        if now < expire_time:
+            return cached_data
+
     try:
         c = await get_client()
         r = await c.get(
             f"{BASE}{path}",
-            params={"api_key": key, "language": await _lang(), **(params or {})},
+            params={"api_key": key, "language": lang_val, **(params or {})},
             timeout=15,
         )
     except Exception as e:
@@ -45,7 +66,9 @@ async def _get(path: str, params: dict[str, Any] | None = None) -> dict | None:
         log.warning("tmdb %s -> %d", path, r.status_code)
         return None
     try:
-        return r.json()
+        data = r.json()
+        _cache[cache_key] = (now + 1800, data)  # 30 mins TTL
+        return data
     except Exception as e:
         log.warning("tmdb %s json decode failed: %s", path, e)
         return None

@@ -3,6 +3,7 @@ filmpalast.to scraper.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from urllib.parse import quote
@@ -44,7 +45,7 @@ class FilmpalastScraper(BaseScraper):
 
         # Split by article blocks
         articles = html.split('<article class="liste')
-        results: list[SearchResult] = []
+        candidates = []
 
         for art in articles[1:]:
             # Extract title and URL inside h2 tag
@@ -76,29 +77,42 @@ class FilmpalastScraper(BaseScraper):
                 elif poster.startswith("/"):
                     poster = BASE + poster
 
-            # Fetch the detail page of this movie to get year and language
-            try:
-                detail_html = await get(movie_url)
-                info = await self._parse_detail_page(movie_url, detail_html)
-                if info:
-                    # Keep poster from search page if not found in detail page
-                    if not info.poster:
-                        info.poster = poster
-                    results.append(info)
-            except Exception as e:
-                log.warning("filmpalast: failed to fetch/parse details for %s: %s", movie_url, e)
+            candidates.append((movie_url, title, poster))
+
+        candidates = candidates[:30]
+        sem = asyncio.Semaphore(6)
+
+        async def resolve_candidate(idx: int, movie_url: str, title: str, poster: str | None) -> SearchResult:
+            if idx >= 15:
+                return SearchResult(
+                    title=title,
+                    url=movie_url,
+                    source=self.name,
+                    poster=poster,
+                    language="en" if "-english" in movie_url.lower() or "english" in title.lower() else "de"
+                )
+            async with sem:
+                try:
+                    detail_html = await get(movie_url)
+                    info = await self._parse_detail_page(movie_url, detail_html)
+                    if info:
+                        if not info.poster:
+                            info.poster = poster
+                        return info
+                except Exception as e:
+                    log.warning("filmpalast: failed to fetch/parse details for %s: %s", movie_url, e)
+
                 # Fallback to rough search page info
-                results.append(
-                    SearchResult(
-                        title=title,
-                        url=movie_url,
-                        source=self.name,
-                        poster=poster,
-                        language="en" if "-english" in movie_url.lower() or "english" in title.lower() else "de"
-                    )
+                return SearchResult(
+                    title=title,
+                    url=movie_url,
+                    source=self.name,
+                    poster=poster,
+                    language="en" if "-english" in movie_url.lower() or "english" in title.lower() else "de"
                 )
 
-        return results[:30]
+        results = await asyncio.gather(*[resolve_candidate(idx, url, title, post) for idx, (url, title, post) in enumerate(candidates)])
+        return list(results)
 
     async def _parse_detail_page(self, movie_url: str, html: str) -> SearchResult | None:
         title = extract_title(html)

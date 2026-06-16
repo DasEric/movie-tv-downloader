@@ -148,6 +148,24 @@ class QueueManager:
         events.publish("queue.removed", {"id": item_id})
         return True
 
+    async def delete_completed_and_failed(self) -> int:
+        async with session_scope() as s:
+            items = (
+                await s.execute(
+                    select(QueueItem).where(
+                        QueueItem.status.in_([ItemStatus.COMPLETED, ItemStatus.FAILED])
+                    )
+                )
+            ).scalars().all()
+            removed = 0
+            for it in items:
+                if it.id is not None:
+                    self._abort_running(it.id)
+                    await s.delete(it)
+                    events.publish("queue.removed", {"id": it.id})
+                    removed += 1
+            return removed
+
     async def pause(self, item_id: int) -> None:
         self._abort_running(item_id)
         await self.update(item_id, status=ItemStatus.PAUSED, progress=0.0)
@@ -264,8 +282,8 @@ class QueueManager:
                 log.exception("queue loop error")
 
             try:
-                await asyncio.wait_for(self._wake.wait(), timeout=5.0)
-            except asyncio.TimeoutError:
+                await self._wake.wait()
+            except Exception:
                 pass
 
     async def _wrap_process(self, item_id: int, func) -> None:

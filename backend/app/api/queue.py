@@ -18,6 +18,8 @@ from app.queue_manager import queue_manager
 from app.scrapers import get_scraper
 from app.scrapers.aniworld import AniworldScraper
 from app.scrapers.sto import StoScraper
+from app.scrapers.burningseries import BurningSeriesScraper
+from app.scrapers.kinox import KinoxScraper
 
 router = APIRouter(prefix="/api/queue", tags=["queue"])
 
@@ -71,7 +73,7 @@ async def add_bulk_episodes(req: BulkAddEpisodesRequest):
 @router.post("/season")
 async def add_full_season(req: AddSeasonRequest):
     scraper = get_scraper(req.source)
-    if not isinstance(scraper, (StoScraper, AniworldScraper)):
+    if not isinstance(scraper, (StoScraper, AniworldScraper, BurningSeriesScraper, KinoxScraper)):
         raise HTTPException(400, "source does not support seasons")
     try:
         eps = await scraper.list_episodes(req.slug, req.season)
@@ -133,7 +135,7 @@ async def add_full_season(req: AddSeasonRequest):
 async def add_full_series(req: AddSeriesRequest):
     """Queue every episode of every season for a show."""
     scraper = get_scraper(req.source)
-    if not isinstance(scraper, (StoScraper, AniworldScraper)):
+    if not isinstance(scraper, (StoScraper, AniworldScraper, BurningSeriesScraper, KinoxScraper)):
         raise HTTPException(400, "source does not support seasons")
     try:
         season_nums = await scraper.list_seasons(req.slug)
@@ -281,10 +283,5 @@ async def stop_all():
 
 @router.delete("")
 async def clear_completed():
-    items = await queue_manager.list_items()
-    removed = 0
-    for i in items:
-        if i.status in (ItemStatus.COMPLETED, ItemStatus.FAILED) and i.id is not None:
-            await queue_manager.delete(i.id)
-            removed += 1
+    removed = await queue_manager.delete_completed_and_failed()
     return {"removed": removed}

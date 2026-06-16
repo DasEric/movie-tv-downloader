@@ -108,12 +108,14 @@ class BurningSeriesScraper(BaseScraper):
     async def fetch_show_details(self, slug: str) -> dict:
         html = await get(f"{BASE}/serie/{slug}")
         poster = absolutize(extract_poster(html), BASE)
-        seasons = await self.list_seasons(slug)
+        seasons: set[int] = set()
+        for m in re.finditer(r'href="/?serie/[^"]+/(\d+)(?:/[a-z]{2})?"', html, re.IGNORECASE):
+            seasons.add(int(m.group(1)))
         title = extract_title(html, slug.replace("-", " ").title())
         return {
             "title": title,
             "poster": poster,
-            "seasons": seasons,
+            "seasons": sorted(seasons),
         }
 
     async def episode_has_language(

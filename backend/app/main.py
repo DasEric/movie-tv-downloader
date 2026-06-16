@@ -96,6 +96,7 @@ async def health() -> dict:
 @app.get("/api/info")
 async def info() -> dict:
     from app.services import settings_store
+    from app.models import ItemSource
 
     runtime = await settings_store.get_all()
     return {
@@ -107,7 +108,7 @@ async def info() -> dict:
             "tv": str(settings.tv_path),
             "config": str(settings.config_path),
         },
-        "sources": ["s.to", "aniworld", "megakino"],
+        "sources": [s.value for s in ItemSource],
         # Service status flags for the UI badges (no secrets leaked)
         "configured": {
             "tmdb": bool(runtime.get("tmdb_api_key")),

@@ -55,10 +55,10 @@ async def list_watches():
 
 @router.post("")
 async def add_watch(req: AddWatchRequest):
-    if req.source not in (ItemSource.STO, ItemSource.ANIWORLD):
+    if req.source not in (ItemSource.STO, ItemSource.ANIWORLD, ItemSource.BURNING_SERIES, ItemSource.KINOX):
         raise HTTPException(
             400,
-            "Season watchlist only supports s.to and aniworld — megakino has no seasons.",
+            "Season watchlist only supports s.to, aniworld, burning-series.io and kinox.to.",
         )
 
     expires_at: Optional[datetime] = None

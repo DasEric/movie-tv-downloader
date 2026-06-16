@@ -11,6 +11,10 @@ from app.scrapers.aniworld import AniworldScraper
 from app.scrapers.aniworld import slug_from_url as aw_slug
 from app.scrapers.sto import StoScraper
 from app.scrapers.sto import slug_from_url as sto_slug
+from app.scrapers.burningseries import BurningSeriesScraper
+from app.scrapers.burningseries import slug_from_url as bs_slug
+from app.scrapers.kinox import KinoxScraper
+from app.scrapers.kinox import slug_from_url as kx_slug
 from app.services import tmdb
 
 router = APIRouter(prefix="/api/search", tags=["search"])
@@ -42,7 +46,7 @@ async def search(
 @router.get("/seasons")
 async def list_seasons_route(source: ItemSource, slug: str):
     scraper = get_scraper(source)
-    if not isinstance(scraper, (StoScraper, AniworldScraper)):
+    if not isinstance(scraper, (StoScraper, AniworldScraper, BurningSeriesScraper, KinoxScraper)):
         raise HTTPException(400, "source has no seasons")
     try:
         seasons = await scraper.list_seasons(slug)
@@ -58,7 +62,7 @@ async def show_details(source: ItemSource, slug: str):
     Replaces the separate seasons/poster dance on result-pick.
     """
     scraper = get_scraper(source)
-    if not isinstance(scraper, (StoScraper, AniworldScraper)):
+    if not isinstance(scraper, (StoScraper, AniworldScraper, BurningSeriesScraper, KinoxScraper)):
         raise HTTPException(400, "source has no show details")
     try:
         details = await scraper.fetch_show_details(slug)
@@ -70,7 +74,7 @@ async def show_details(source: ItemSource, slug: str):
 @router.get("/episodes")
 async def list_episodes_route(source: ItemSource, slug: str, season: int):
     scraper = get_scraper(source)
-    if not isinstance(scraper, (StoScraper, AniworldScraper)):
+    if not isinstance(scraper, (StoScraper, AniworldScraper, BurningSeriesScraper, KinoxScraper)):
         raise HTTPException(400, "source has no episodes")
     try:
         eps = await scraper.list_episodes(slug, season)
@@ -96,7 +100,7 @@ async def list_episodes_with_language(
     when available, or null when not.
     """
     scraper = get_scraper(source)
-    if not isinstance(scraper, (StoScraper, AniworldScraper)):
+    if not isinstance(scraper, (StoScraper, AniworldScraper, BurningSeriesScraper, KinoxScraper)):
         raise HTTPException(400, "source has no episodes")
     try:
         eps = await scraper.list_episodes(slug, season)
@@ -155,4 +159,8 @@ def _slug_for(source: ItemSource, url: str) -> str | None:
         return sto_slug(url)
     if source == ItemSource.ANIWORLD:
         return aw_slug(url)
+    if source == ItemSource.BURNING_SERIES:
+        return bs_slug(url)
+    if source == ItemSource.KINOX:
+        return kx_slug(url)
     return None

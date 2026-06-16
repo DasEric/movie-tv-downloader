@@ -194,9 +194,14 @@ def get_existing_episodes(title: str) -> dict[int, list[int]]:
     This is a non-async helper for internal use (queue endpoints) so they
     can skip episodes that are already downloaded.
     """
+    cache_key = f"existing:{title.lower()}"
+    cached = _cached(cache_key)
+    if cached is not None:
+        return cached
+
     show_dir = _find_show_dir(title)
     if not show_dir:
-        return {}
+        return _store(cache_key, {})
 
     result: dict[int, set[int]] = {}
 
@@ -211,7 +216,8 @@ def get_existing_episodes(title: str) -> dict[int, list[int]]:
         s = season if season is not None else 1
         result.setdefault(s, set()).add(ep)
 
-    return {k: sorted(v) for k, v in sorted(result.items()) if v}
+    res_dict = {k: sorted(v) for k, v in sorted(result.items()) if v}
+    return _store(cache_key, res_dict)
 
 
 # ---------- endpoints ----------

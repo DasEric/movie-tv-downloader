@@ -24,6 +24,8 @@ from app.scrapers import get_scraper
 from app.scrapers.aniworld import AniworldScraper
 from app.scrapers.megakino import MegakinoScraper
 from app.scrapers.sto import StoScraper
+from app.scrapers.burningseries import BurningSeriesScraper
+from app.scrapers.kinox import KinoxScraper
 from app.services import settings_store, tmdb
 
 log = logging.getLogger(__name__)
@@ -324,7 +326,7 @@ async def enqueue_from_request(
     if not decision.source or not decision.slug or not decision.seasons_to_download:
         return []
     scraper = get_scraper(decision.source)
-    if not isinstance(scraper, (StoScraper, AniworldScraper)):
+    if not isinstance(scraper, (StoScraper, AniworldScraper, BurningSeriesScraper, KinoxScraper)):
         return []
 
     # "new_season" when the library already had something; "full_series"

@@ -3,6 +3,7 @@ kinox.to scraper.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from urllib.parse import quote, urlparse
@@ -45,7 +46,7 @@ class KinoxScraper(BaseScraper):
             return []
 
         blocks = html.split('class="Opt leftOpt Headlne"')
-        results: list[SearchResult] = []
+        candidates = []
 
         for b in blocks[1:]:
             # Extract URL and title from the headline link
@@ -82,34 +83,44 @@ class KinoxScraper(BaseScraper):
                 elif lang_id == "2":
                     lang = "en"
 
-            # Fetch detail page of search result (top 8 only to avoid slowness)
-            if len(results) < 8:
-                try:
-                    detail_html = await get(movie_url)
-                    info = await self._parse_detail_page(movie_url, detail_html)
-                    if info:
-                        if not info.poster:
-                            info.poster = poster
-                        # Override language if detail page specifies it
-                        if lang:
-                            info.language = lang
-                        results.append(info)
-                        continue
-                except Exception as e:
-                    log.warning("kinox: failed to fetch details for %s: %s", movie_url, e)
+            candidates.append((movie_url, title, poster, lang))
 
-            # Fallback to search results info
-            results.append(
-                SearchResult(
+        candidates = candidates[:30]
+        sem = asyncio.Semaphore(6)
+
+        async def resolve_candidate(idx: int, movie_url: str, title: str, poster: str | None, lang: str) -> SearchResult:
+            if idx >= 15:
+                return SearchResult(
                     title=title,
                     url=movie_url,
                     source=self.name,
                     poster=poster,
                     language=lang
                 )
-            )
 
-        return results[:30]
+            async with sem:
+                try:
+                    detail_html = await get(movie_url)
+                    info = await self._parse_detail_page(movie_url, detail_html)
+                    if info:
+                        if not info.poster:
+                            info.poster = poster
+                        if lang:
+                            info.language = lang
+                        return info
+                except Exception as e:
+                    log.warning("kinox: failed to fetch details for %s: %s", movie_url, e)
+
+                return SearchResult(
+                    title=title,
+                    url=movie_url,
+                    source=self.name,
+                    poster=poster,
+                    language=lang
+                )
+
+        results = await asyncio.gather(*[resolve_candidate(idx, url, title, post, lang) for idx, (url, title, post, lang) in enumerate(candidates)])
+        return list(results)
 
     async def _parse_detail_page(self, movie_url: str, html: str) -> SearchResult | None:
         title = extract_title(html)
@@ -170,6 +181,25 @@ class KinoxScraper(BaseScraper):
             if m_opt:
                 return [int(ep) for ep in m_opt.group(1).split(",") if ep.strip().isdigit()]
         return []
+
+    async def fetch_show_details(self, slug: str) -> dict:
+        url = f"{BASE}/Stream/{slug}.html"
+        html = await get(url)
+        info = await self._parse_detail_page(url, html)
+        title = info.title if info else slug.replace("-", " ").title()
+        poster = info.poster if info else None
+        
+        m_sec = re.search(r'id="SeasonSelection".*?</select>', html, re.DOTALL)
+        seasons = set()
+        if m_sec:
+            for m in re.finditer(r'<option\s+value="(\d+)"', m_sec.group(0)):
+                seasons.add(int(m.group(1)))
+                
+        return {
+            "title": title,
+            "poster": poster,
+            "seasons": sorted(seasons),
+        }
 
     async def episode_has_language(
         self, slug: str, season: int, episode: int, language: str
