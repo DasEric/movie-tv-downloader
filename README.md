@@ -178,8 +178,8 @@ docker compose up -d --build
 
 ## The volume contract — the important part
 
-The container has fixed internal paths. Mount your host folders to these
-**exact** container paths:
+The container has four **fixed** internal paths. Mount your host folders to
+these **exact** container paths:
 
 | Container path (fixed) | What goes here | Point the host side at |
 |---|---|---|
@@ -193,6 +193,31 @@ The container has fixed internal paths. Mount your host folders to these
 **Don't** mount under a prefix like `/data/movies` — the container writes to
 `/movies` and `/tv` directly. Mounting elsewhere sends downloads into the
 container's ephemeral layer, where they vanish on restart.
+
+### Optional: extra libraries (e.g. Anime)
+
+On top of the four fixed paths you can mount **any number of extra volumes** and
+route individual sources to them (see
+[Per-source storage paths](#per-source-storage-paths)). Unlike the four above,
+the container path here is **not fixed — you choose it freely**; it only has to
+match what you enter in the Settings UI.
+
+| Container path (your choice) | What goes here | Point the host side at |
+|---|---|---|
+| `/anime` *(example — any name works)* | A source you route here (e.g. AniWorld) | Your separate **Anime** library |
+
+```yaml
+volumes:
+  - /path/to/your/Movies:/movies
+  - /path/to/your/TV:/tv
+  - /path/to/your/Anime:/anime          # ← extra library, freely named
+  - ./data/config:/config
+  - ./data/tmp:/tmp/h0melab
+```
+
+Then set the source's path to `/anime` under **Settings → Speicherpfade pro
+Quelle**. If you enter a path but forget to mount it, the download safely
+falls back to `/tv` / `/movies` — see the next section.
 
 ---
 
