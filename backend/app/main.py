@@ -36,6 +36,12 @@ async def lifespan(app: FastAPI):
     setup_logging()
     log.info("H0melab Downloader starting (v%s)", __version__)
     await init_db()
+    # Warm the per-source path cache before the library scanner runs.
+    try:
+        from app.services import paths
+        await paths.refresh()
+    except Exception as e:
+        log.warning("initial path cache refresh failed: %s", e)
     await queue_manager.start()
     await scheduler.start()
     # Discord bot — no-op when disabled or token missing.

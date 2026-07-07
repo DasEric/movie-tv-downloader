@@ -25,6 +25,9 @@ DEFAULT_KEYS: dict[str, Any] = {
     "proxy_url": lambda: env_settings.proxy_url or "",
     "subtitle_languages": lambda: ["de", "en"],
     "auto_subtitles": lambda: True,
+    # Per-source output path overrides. Keyed by ItemSource value, each entry
+    # {"tv": "<path>", "movie": "<path>"}; empty string = use the global root.
+    "source_paths": lambda: {},
     "release_check_interval_min": lambda: 60,
     # --- discord bot ---
     "discord_bot_enabled": lambda: False,

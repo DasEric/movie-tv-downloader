@@ -12,6 +12,17 @@ const SECRET_KEYS = [
 
 type DiscordStatus = { running: boolean; error: string | null };
 
+// Which output paths are configurable per source. `id` must match the
+// backend ItemSource value exactly.
+const SOURCE_PATHS: { id: string; label: string; tv: boolean; movie: boolean }[] = [
+  { id: "s.to", label: "s.to (Serien)", tv: true, movie: false },
+  { id: "aniworld", label: "AniWorld (Anime)", tv: true, movie: false },
+  { id: "burning-series.io", label: "Burning Series", tv: true, movie: false },
+  { id: "kinox.to", label: "Kinox", tv: true, movie: true },
+  { id: "megakino", label: "Megakino (Filme)", tv: false, movie: true },
+  { id: "filmpalast.to", label: "Filmpalast (Filme)", tv: false, movie: true },
+];
+
 export function SettingsView() {
   const { t } = useTranslation();
   const [form, setForm] = useState<any>(null);
@@ -64,6 +75,18 @@ export function SettingsView() {
   if (!form) return <div className="card">{t("common.loading")}</div>;
 
   const set = (k: string, v: any) => setForm((p: any) => ({ ...p, [k]: v }));
+
+  const getSourcePath = (id: string, kind: "tv" | "movie"): string =>
+    (form.source_paths && form.source_paths[id] && form.source_paths[id][kind]) || "";
+
+  const setSourcePath = (id: string, kind: "tv" | "movie", value: string) =>
+    setForm((p: any) => {
+      const sp = { ...(p.source_paths || {}) };
+      const entry = { ...(sp[id] || {}) };
+      entry[kind] = value;
+      sp[id] = entry;
+      return { ...p, source_paths: sp };
+    });
 
   const save = async () => {
     setSaving(true);
@@ -456,6 +479,57 @@ export function SettingsView() {
             onChange={(e) => set("subtitle_languages", e.target.value)}
           />
         </div>
+      </div>
+
+      <h3>{t("settings.storagePaths")}</h3>
+      <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 10 }}>
+        {t("settings.storagePathsHint")}
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ textAlign: "left", color: "var(--text-dim)", fontSize: 12 }}>
+              <th style={{ padding: "4px 8px 4px 0" }}>{t("settings.pathSourceCol")}</th>
+              <th style={{ padding: "4px 8px" }}>{t("settings.pathTvCol")}</th>
+              <th style={{ padding: "4px 8px" }}>{t("settings.pathMovieCol")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {SOURCE_PATHS.map((s) => (
+              <tr key={s.id}>
+                <td style={{ padding: "4px 8px 4px 0", whiteSpace: "nowrap" }}>
+                  {s.label}
+                </td>
+                <td style={{ padding: "4px 8px" }}>
+                  {s.tv ? (
+                    <input
+                      type="text"
+                      value={getSourcePath(s.id, "tv")}
+                      onChange={(e) => setSourcePath(s.id, "tv", e.target.value)}
+                      placeholder={t("settings.pathDefaultPlaceholder")}
+                      style={{ width: "100%" }}
+                    />
+                  ) : (
+                    <span style={{ color: "var(--text-dim)" }}>—</span>
+                  )}
+                </td>
+                <td style={{ padding: "4px 8px" }}>
+                  {s.movie ? (
+                    <input
+                      type="text"
+                      value={getSourcePath(s.id, "movie")}
+                      onChange={(e) => setSourcePath(s.id, "movie", e.target.value)}
+                      placeholder={t("settings.pathDefaultPlaceholder")}
+                      style={{ width: "100%" }}
+                    />
+                  ) : (
+                    <span style={{ color: "var(--text-dim)" }}>—</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
       <div className="row" style={{ marginTop: 20, justifyContent: "flex-end" }}>

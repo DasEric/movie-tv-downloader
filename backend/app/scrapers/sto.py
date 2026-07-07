@@ -17,6 +17,8 @@ HTML contract:
 from __future__ import annotations
 
 import asyncio
+import html as html_lib
+import json
 import logging
 import re
 from urllib.parse import urlparse
@@ -32,10 +34,43 @@ from app.services.http import get, get_client
 
 log = logging.getLogger(__name__)
 
-_DOMAINS = ["https://s.to", "https://serienstream.to"]
+# s.to was taken offline in 2026 — the site now lives on serienstream.to.
+# The bare IP is kept as a last-resort fallback for when an ISP blocks the
+# domain via DNS (common in DE): we connect straight to the IP, pin the
+# expected vhost via a Host header and skip cert verification (the TLS cert
+# is issued for the domain, not the IP).
+_DOMAINS = ["https://serienstream.to", "https://186.2.175.5"]
+_VHOST = "serienstream.to"
+# Hostnames that mean "still on the site" (redirect hasn't reached the hoster).
+_SITE_HOSTS = ("s.to", "serienstream.to", "186.2.175.5")
+_IP_RE = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
 # Index into _DOMAINS — rotated on failure so the next call starts with
 # the domain that last worked.
 _active_idx: int = 0
+
+
+def _domain_kwargs(base: str) -> dict:
+    """Extra request kwargs for a base URL.
+
+    A bare-IP base needs the vhost pinned via a Host header and cert
+    verification disabled (the cert is for serienstream.to, not the IP).
+    Domain bases need nothing special.
+    """
+    host = urlparse(base).netloc
+    if _IP_RE.match(host):
+        return {"headers": {"Host": _VHOST}, "verify": False}
+    return {}
+
+
+def _merge_kwargs(base: str, kwargs: dict) -> dict:
+    """Merge per-domain kwargs with caller kwargs (headers merged, not clobbered)."""
+    extra = _domain_kwargs(base)
+    if not extra:
+        return kwargs
+    merged = {**extra, **kwargs}
+    if "headers" in extra and "headers" in kwargs:
+        merged["headers"] = {**extra["headers"], **kwargs["headers"]}
+    return merged
 
 
 async def _get_with_fallback(path: str, **kwargs) -> str:
@@ -45,7 +80,7 @@ async def _get_with_fallback(path: str, **kwargs) -> str:
     for i in range(len(_DOMAINS)):
         base = _DOMAINS[(_active_idx + i) % len(_DOMAINS)]
         try:
-            html = await get(f"{base}{path}", **kwargs)
+            html = await get(f"{base}{path}", **_merge_kwargs(base, kwargs))
             # Success — remember this domain for future calls.
             _active_idx = (_active_idx + i) % len(_DOMAINS)
             return html
@@ -59,6 +94,69 @@ async def _get_with_fallback(path: str, **kwargs) -> str:
 def _current_base() -> str:
     """Return the currently preferred base URL (for URL construction)."""
     return _DOMAINS[_active_idx]
+
+
+async def _ajax_search(query: str) -> list[dict]:
+    """
+    Query s.to's native AJAX search endpoint.
+
+    `POST /ajax/search` with form field `keyword` returns a JSON array of
+    hits, each like `{"link": "/serie/<slug>", "title": "<b>Foo</b> …"}`.
+    We keep only series-root links (`/serie/<slug>` with nothing after the
+    slug) and strip the highlight markup from the title.
+
+    Returns a list of `{"slug", "title"}` dicts (deduped, order preserved).
+    On any network/JSON error returns `[]` so the caller can fall back to
+    the slug guess.
+    """
+    global _active_idx
+    headers = {
+        "X-Requested-With": "XMLHttpRequest",
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
+    c = await get_client()
+    data: list | None = None
+    for i in range(len(_DOMAINS)):
+        base = _DOMAINS[(_active_idx + i) % len(_DOMAINS)]
+        try:
+            req_kwargs = _merge_kwargs(
+                base, {"headers": headers, "allow_redirects": True}
+            )
+            r = await c.post(
+                f"{base}/ajax/search",
+                data={"keyword": query},
+                **req_kwargs,
+            )
+            r.raise_for_status()
+            parsed = json.loads(r.text)
+            if isinstance(parsed, list):
+                _active_idx = (_active_idx + i) % len(_DOMAINS)
+                data = parsed
+                break
+        except Exception as e:
+            log.info("s.to ajax search on %s failed: %s", base, e)
+            continue
+
+    if not data:
+        return []
+
+    out: list[dict] = []
+    seen: set[str] = set()
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        link = (entry.get("link") or "").strip()
+        m = re.fullmatch(r"/serie/([^/]+)", link)
+        if not m:
+            continue
+        slug = m.group(1)
+        if slug in seen:
+            continue
+        seen.add(slug)
+        raw_title = entry.get("title") or slug.replace("-", " ").title()
+        title = html_lib.unescape(re.sub(r"<[^>]+>", "", str(raw_title))).strip()
+        out.append({"slug": slug, "title": title})
+    return out
 
 
 # Keep BASE as a constant for the redirect check — both domains are valid.
@@ -146,15 +244,18 @@ class StoScraper(BaseScraper):
 
     async def search(self, query: str) -> list[SearchResult]:
         """
-        Two-strategy search — s.to doesn't expose a reliable HTML search
-        endpoint, so we rely on the slug fallback which is very accurate
-        for exact titles.
+        Search strategy:
 
           1. Direct URL paste → extract slug, fetch page, populate poster.
-          2. Slug fallback:    slugify → fetch page, populate poster.
+          2. Title → s.to's native AJAX search (`/ajax/search`), which returns
+             every matching show, not just the one whose slug we can guess.
+          3. Slug fallback: slugify → fetch page, populate poster. Kept as a
+             safety net for when the AJAX endpoint is unreachable or returns
+             nothing (e.g. an exact title that the search index misses).
 
-        Either way we ALWAYS fetch the show page so the grid card has a
-        poster + canonical title without a second round-trip.
+        The AJAX path is what makes "type a title, get the right show" work
+        even when the slug isn't a clean slugify() of the title (umlauts,
+        alternate titles, years, punctuation, …).
         """
         query = query.strip()
 
@@ -162,11 +263,30 @@ class StoScraper(BaseScraper):
             slug = slug_from_url(query)
             if not slug:
                 return []
-        else:
-            slug = slugify(query, separator="-", lowercase=True)
-            if not slug:
-                return []
+            return await self._result_for_slug(slug)
 
+        # --- Title search via the site's own search index ---
+        hits = await _ajax_search(query)
+        if hits:
+            base = _current_base()
+            return [
+                SearchResult(
+                    title=h["title"],
+                    url=f"{base}/serie/{h['slug']}",
+                    source=self.name,
+                    poster=None,
+                )
+                for h in hits[:30]
+            ]
+
+        # --- Fallback: guess the slug from the title ---
+        slug = slugify(query, separator="-", lowercase=True)
+        if not slug:
+            return []
+        return await self._result_for_slug(slug)
+
+    async def _result_for_slug(self, slug: str) -> list[SearchResult]:
+        """Fetch a single show page by slug and build a poster-rich result."""
         try:
             html = await _get_with_fallback(f"/serie/{slug}")
         except Exception as e:
@@ -206,7 +326,6 @@ class StoScraper(BaseScraper):
         results = []
         seen_urls = set()
         base = _current_base()
-        import html as html_lib
 
         # 1. First search for cards with image tags (handles popular and home page)
         matches = re.finditer(r'<a[^>]*href="(/serie/[a-z0-9\-]+)"[^>]*>.*?<img(?P<img>[^>]+)>', html, re.DOTALL | re.IGNORECASE)
@@ -411,7 +530,9 @@ class StoScraper(BaseScraper):
         through a semaphore and add a small delay, retrying up to 3
         times with increasing backoff.
         """
-        target = play_url if play_url.startswith("http") else _current_base() + play_url
+        base = _current_base()
+        target = play_url if play_url.startswith("http") else base + play_url
+        req_kwargs = _merge_kwargs(base, {"allow_redirects": True})
 
         last_err: Exception | None = None
         for attempt in range(3):
@@ -427,13 +548,13 @@ class StoScraper(BaseScraper):
                     await asyncio.sleep(_REDIRECT_DELAY)
 
                 c = await get_client()
-                r = await c.get(target, allow_redirects=True)
+                r = await c.get(target, **req_kwargs)
                 r.raise_for_status()
 
                 final = str(r.url)
                 netloc = urlparse(final).netloc
 
-                if not (netloc.endswith("s.to") or netloc.endswith("serienstream.to")):
+                if not any(netloc == h or netloc.endswith("." + h) for h in _SITE_HOSTS):
                     return final
 
                 # Still on s.to — check if it's a captcha or rate limit

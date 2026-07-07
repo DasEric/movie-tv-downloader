@@ -18,7 +18,7 @@ from app.models import ItemKind, ItemStatus, ItemSource
 from app.queue_manager import queue_manager
 from app.scrapers import get_scraper
 from app.scrapers.base import EpisodeRef
-from app.services import notifications, settings_store, subtitles
+from app.services import notifications, paths, settings_store, subtitles
 from app.services.captcha import CaptchaRequiredError
 from app.services.downloader import download
 from app.services.postprocess import finalize_movie, finalize_tv
@@ -120,6 +120,7 @@ async def process_item(item_id: int) -> None:
             on_progress,
             http_headers=stream.headers,
             cancel_event=cancel_event,
+            language=stream.language,
         )
 
         # ---- post-process (ffmpeg -> mp4 -> plex path) ----
@@ -130,14 +131,18 @@ async def process_item(item_id: int) -> None:
             message="converting to mp4",
         )
 
+        dest_root = await paths.output_root(item.source, item.kind)
         if item.kind == ItemKind.MOVIE:
             year = None
             if item.release_date:
                 year = item.release_date.year
-            final_path = await finalize_movie(raw_path, item.title, year)
+            final_path = await finalize_movie(
+                raw_path, item.title, year, root=dest_root
+            )
         else:
             final_path = await finalize_tv(
-                raw_path, item.title, item.season or 1, item.episode or 1
+                raw_path, item.title, item.season or 1, item.episode or 1,
+                root=dest_root,
             )
 
         # ---- subtitles ----

@@ -60,6 +60,15 @@ async def update_settings(req: SettingsUpdateRequest):
     if "concurrency" in payload:
         await queue_manager.set_concurrency(int(payload["concurrency"]))
 
+    # Refresh the per-source path cache so the library scanner sees new roots.
+    if "source_paths" in payload:
+        try:
+            from app.services import paths
+
+            await paths.refresh()
+        except Exception as e:
+            log.warning("path cache refresh after settings update failed: %s", e)
+
     # Hot-reload the Discord bot when any of its settings changed.
     if _DISCORD_KEYS & set(payload):
         try:

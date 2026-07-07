@@ -33,7 +33,10 @@ log = logging.getLogger(__name__)
 PROVIDER_HEADERS: dict[str, dict[str, str]] = {
     "voe": {
         "Accept": "*/*",
-        "Accept-Language": "en-US,en;q=0.5",
+        # German-first: some hosters content-negotiate the default audio
+        # track off Accept-Language. A German downloader should never ask
+        # for en-US here.
+        "Accept-Language": "de-DE,de;q=0.9,en;q=0.5",
         "Accept-Encoding": "gzip, deflate",
         "Connection": "keep-alive",
         "Referer": "https://voe.sx/",

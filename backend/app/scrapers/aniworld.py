@@ -26,6 +26,8 @@ Our UI uses simpler labels, so we translate them here:
 """
 from __future__ import annotations
 
+import html as html_lib
+import json
 import logging
 import re
 import time
@@ -42,6 +44,58 @@ from app.services.http import get, get_client
 log = logging.getLogger(__name__)
 
 BASE = "https://aniworld.to"
+
+
+async def _ajax_search(query: str) -> list[dict]:
+    """
+    Query aniworld's native AJAX search endpoint (same CMS as s.to).
+
+    `POST /ajax/search` with form field `keyword` returns a JSON array of
+    hits like `{"link": "/anime/stream/<slug>", "title": "<b>Foo</b> …"}`.
+    We keep only anime-root links and strip the highlight markup.
+
+    Returns `[{"slug", "title"}, …]` (deduped). On any error returns `[]`
+    so the caller falls back to the slug guess.
+    """
+    headers = {
+        "X-Requested-With": "XMLHttpRequest",
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
+    try:
+        c = await get_client()
+        r = await c.post(
+            f"{BASE}/ajax/search",
+            data={"keyword": query},
+            headers=headers,
+            allow_redirects=True,
+        )
+        r.raise_for_status()
+        data = json.loads(r.text)
+    except Exception as e:
+        log.info("aniworld ajax search failed: %s", e)
+        return []
+
+    if not isinstance(data, list):
+        return []
+
+    out: list[dict] = []
+    seen: set[str] = set()
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        link = (entry.get("link") or "").strip()
+        m = re.fullmatch(r"/anime/stream/([^/]+)", link)
+        if not m:
+            continue
+        slug = m.group(1)
+        if slug in seen:
+            continue
+        seen.add(slug)
+        raw_title = entry.get("title") or slug.replace("-", " ").title()
+        title = html_lib.unescape(re.sub(r"<[^>]+>", "", str(raw_title))).strip()
+        out.append({"slug": slug, "title": title})
+    return out
+
 
 LANG_KEY = {
     "de": "1",
@@ -91,14 +145,14 @@ class AniworldScraper(BaseScraper):
 
     async def search(self, query: str) -> list[SearchResult]:
         """
-        Two-strategy search (same pattern as the s.to scraper):
+        Search strategy (same pattern as the s.to scraper):
 
           1. Direct URL paste → extract slug, fetch page, populate poster.
-          2. Slug fallback:    slugify → fetch page, populate poster.
-
-        In both cases we fetch the show page and pull out the poster +
-        canonical title, so the grid card has everything it needs without
-        a second round-trip.
+          2. Title → aniworld's native AJAX search (`/ajax/search`), which
+             returns every matching anime, not just the one whose slug we
+             can guess.
+          3. Slug fallback: slugify → fetch page, populate poster. Safety net
+             for when the AJAX endpoint is unreachable or returns nothing.
         """
         query = query.strip()
 
@@ -106,11 +160,29 @@ class AniworldScraper(BaseScraper):
             slug = slug_from_url(query)
             if not slug:
                 return []
-        else:
-            slug = slugify(query, separator="-", lowercase=True)
-            if not slug:
-                return []
+            return await self._result_for_slug(slug)
 
+        # --- Title search via the site's own search index ---
+        hits = await _ajax_search(query)
+        if hits:
+            return [
+                SearchResult(
+                    title=h["title"],
+                    url=f"{BASE}/anime/stream/{h['slug']}",
+                    source=self.name,
+                    poster=None,
+                )
+                for h in hits[:30]
+            ]
+
+        # --- Fallback: guess the slug from the title ---
+        slug = slugify(query, separator="-", lowercase=True)
+        if not slug:
+            return []
+        return await self._result_for_slug(slug)
+
+    async def _result_for_slug(self, slug: str) -> list[SearchResult]:
+        """Fetch a single anime page by slug and build a poster-rich result."""
         url = f"{BASE}/anime/stream/{slug}"
         try:
             html = await get(url)
@@ -145,7 +217,6 @@ class AniworldScraper(BaseScraper):
 
         results = []
         seen_urls = set()
-        import html as html_lib
 
         # 1. First search for cards with image tags (handles popular and home page)
         matches = re.finditer(r'<a[^>]*href="(/anime/stream/[a-z0-9\-]+)"[^>]*>.*?<img(?P<img>[^>]+)>', html, re.DOTALL | re.IGNORECASE)

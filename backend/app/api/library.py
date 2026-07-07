@@ -9,7 +9,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Query
 
-from app.config import settings
+from app.services.paths import all_movie_roots, all_tv_roots
 
 log = logging.getLogger(__name__)
 
@@ -91,21 +91,25 @@ def _find_show_dir(title: str) -> Path | None:
       2. Normalized match (strips punctuation, years, 'Staffel X')
       3. Fuzzy match on normalized names (cutoff 0.6)
     """
-    tv = settings.tv_path
-    if not tv.is_dir():
-        return None
-
-    # Build indexes: lowercase -> Path  AND  normalized -> Path
+    # Build indexes across every configured TV root (global + custom per-source
+    # roots like a separate anime library): lowercase -> Path AND normalized
+    # -> Path. First root wins on a name clash.
     dirs: dict[str, Path] = {}
     norm_dirs: dict[str, Path] = {}
-    try:
-        for d in tv.iterdir():
-            if d.is_dir():
-                dirs[d.name.lower()] = d
-                n = _normalize(d.name)
-                if n:
-                    norm_dirs[n] = d
-    except OSError:
+    for tv in all_tv_roots():
+        if not tv.is_dir():
+            continue
+        try:
+            for d in tv.iterdir():
+                if d.is_dir():
+                    dirs.setdefault(d.name.lower(), d)
+                    n = _normalize(d.name)
+                    if n:
+                        norm_dirs.setdefault(n, d)
+        except OSError:
+            continue
+
+    if not dirs:
         return None
 
     # Tier 1: exact case-insensitive
@@ -281,35 +285,35 @@ async def check_movie(
     if cached is not None:
         return cached
 
-    movies = settings.movies_path
-    if not movies.is_dir():
-        return _store(cache_key, {"found": False})
-
     lower = title.lower().strip()
     norm_title = _normalize(title)
 
-    try:
-        for f in movies.iterdir():
-            if not f.is_file():
-                continue
-            if f.suffix.lower() not in VIDEO_EXTS:
-                continue
-            name_lower = f.stem.lower()
-            # Check title match (with or without year)
-            if lower in name_lower:
-                return _store(cache_key, {"found": True})
-            # Normalized match
-            norm_file = _normalize(f.stem)
-            if norm_title and norm_file and norm_title == norm_file:
-                return _store(cache_key, {"found": True})
-            # Fuzzy on normalized names
-            if norm_title and norm_file:
-                matches = get_close_matches(norm_title, [norm_file], n=1, cutoff=0.65)
-            else:
-                matches = get_close_matches(lower, [name_lower], n=1, cutoff=0.75)
-            if matches:
-                return _store(cache_key, {"found": True})
-    except OSError:
-        pass
+    # Scan every configured movie root (global + custom per-source roots).
+    for movies in all_movie_roots():
+        if not movies.is_dir():
+            continue
+        try:
+            for f in movies.iterdir():
+                if not f.is_file():
+                    continue
+                if f.suffix.lower() not in VIDEO_EXTS:
+                    continue
+                name_lower = f.stem.lower()
+                # Check title match (with or without year)
+                if lower in name_lower:
+                    return _store(cache_key, {"found": True})
+                # Normalized match
+                norm_file = _normalize(f.stem)
+                if norm_title and norm_file and norm_title == norm_file:
+                    return _store(cache_key, {"found": True})
+                # Fuzzy on normalized names
+                if norm_title and norm_file:
+                    matches = get_close_matches(norm_title, [norm_file], n=1, cutoff=0.65)
+                else:
+                    matches = get_close_matches(lower, [name_lower], n=1, cutoff=0.75)
+                if matches:
+                    return _store(cache_key, {"found": True})
+        except OSError:
+            continue
 
     return _store(cache_key, {"found": False})

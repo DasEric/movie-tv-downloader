@@ -33,14 +33,59 @@ QUALITY_MAP = {
     "best": "bestvideo+bestaudio/best",
 }
 
+# Audio-track language prefixes for yt-dlp's `[language^=…]` format filter.
+# HLS manifests (especially VOE) frequently ship BOTH a German and an English
+# audio track in ONE master playlist. Plain `bestaudio` ignores the language
+# tag and often lands on English, so a "German" stream downloads with English
+# audio. We prefer the track whose HLS LANGUAGE attribute matches the requested
+# language, then fall back to the normal selector when nothing is tagged.
+# `^=` is a prefix match, so "de" also covers "deu"/"de-DE", "ger" covers
+# "german", "en" covers "eng"/"english". Both lower- and capitalised spellings
+# are listed because encoders tag them inconsistently.
+_AUDIO_LANG_PREFIXES = {
+    "de": ["de", "ger", "deu", "De", "Ger", "German", "Deu"],
+    "en": ["en", "eng", "En", "Eng", "English"],
+}
+
+
+def _lang_key(language: str | None) -> str | None:
+    """Map a UI language (de, de-dub, de-sub, en, en-sub, …) to a base key."""
+    low = (language or "").lower()
+    if low.startswith("de"):
+        return "de"
+    if low.startswith("en"):
+        return "en"
+    return None
+
+
+def _format_selector(quality: str, language: str | None) -> str:
+    """Build a yt-dlp format string that prefers audio in `language`.
+
+    Tries language-matched audio first (one selector per language spelling),
+    then falls back to the plain quality profile so single-audio streams and
+    untagged manifests keep working exactly as before.
+    """
+    base = QUALITY_MAP.get(quality.lower(), QUALITY_MAP["1080p"])
+    key = _lang_key(language)
+    if not key:
+        return base
+    m = re.search(r"height<=(\d+)", base)
+    height_filter = f"[height<={m.group(1)}]" if m else ""
+    lang_selectors = [
+        f"bestvideo{height_filter}+bestaudio[language^={p}]"
+        for p in _AUDIO_LANG_PREFIXES[key]
+    ]
+    return "/".join(lang_selectors) + "/" + base
+
 
 def _ydl_opts(
     out_path: Path,
     quality: str,
     hook: ProgressCB,
     http_headers: dict[str, str] | None = None,
+    language: str | None = None,
 ) -> dict:
-    fmt = QUALITY_MAP.get(quality.lower(), QUALITY_MAP["1080p"])
+    fmt = _format_selector(quality, language)
     opts: dict = {
         "outtmpl": str(out_path),
         "format": fmt,
@@ -77,6 +122,7 @@ async def download(
     on_progress: ProgressCB,
     http_headers: dict[str, str] | None = None,
     cancel_event: threading.Event | None = None,
+    language: str | None = None,
 ) -> Path:
     """
     Download `url` to `out_path` (template — yt-dlp fills in `%(ext)s`).
@@ -129,7 +175,7 @@ async def download(
             log.debug("progress hook failed: %s", e)
 
     def run() -> str:
-        opts = _ydl_opts(out_path, quality, _thread_hook, http_headers)
+        opts = _ydl_opts(out_path, quality, _thread_hook, http_headers, language)
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=True)

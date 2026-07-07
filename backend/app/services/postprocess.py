@@ -68,19 +68,21 @@ def _safe_file_token(name: str) -> str:
     return token or _FALLBACK
 
 
-def tv_target(show: str, season: int, episode: int) -> Path:
+def tv_target(show: str, season: int, episode: int, root: Path | None = None) -> Path:
     """
-    /tv/Show Name/SXX/Show_Name_SXXEYY.mp4
+    <tv_root>/Show Name/SXX/Show_Name_SXXEYY.mp4
+
+    `root` overrides the default TV root (e.g. a separate anime library).
     """
     clean = _clean_show_title(show)
-    folder = TV_ROOT / _safe_folder(clean) / f"S{season:02d}"
+    folder = (root or TV_ROOT) / _safe_folder(clean) / f"S{season:02d}"
     fname = f"{_safe_file_token(clean)}_S{season:02d}E{episode:02d}.mp4"
     return folder / fname
 
 
-def movie_target(title: str, year: int | None) -> Path:
+def movie_target(title: str, year: int | None, root: Path | None = None) -> Path:
     suffix = f" ({year})" if year else ""
-    return MOVIES_ROOT / f"{_safe_folder(title)}{suffix}.mp4"
+    return (root or MOVIES_ROOT) / f"{_safe_folder(title)}{suffix}.mp4"
 
 
 # ---------- ffmpeg ----------
@@ -128,15 +130,19 @@ async def _run(cmd: list[str]) -> int:
 
 # ---------- top-level entrypoint for the worker ----------
 
-async def finalize_tv(src_tmp: Path, show: str, season: int, episode: int) -> Path:
-    dst = tv_target(show, season, episode)
+async def finalize_tv(
+    src_tmp: Path, show: str, season: int, episode: int, root: Path | None = None
+) -> Path:
+    dst = tv_target(show, season, episode, root=root)
     await convert_to_mp4(src_tmp, dst)
     _cleanup_tmp(src_tmp.parent)
     return dst
 
 
-async def finalize_movie(src_tmp: Path, title: str, year: int | None) -> Path:
-    dst = movie_target(title, year)
+async def finalize_movie(
+    src_tmp: Path, title: str, year: int | None, root: Path | None = None
+) -> Path:
+    dst = movie_target(title, year, root=root)
     await convert_to_mp4(src_tmp, dst)
     _cleanup_tmp(src_tmp.parent)
     return dst

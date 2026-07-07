@@ -67,6 +67,7 @@ class SettingsUpdateRequest(BaseModel):
     proxy_url: Optional[str] = None
     subtitle_languages: Optional[list[str]] = None
     auto_subtitles: Optional[bool] = None
+    source_paths: Optional[dict] = None
     release_check_interval_min: Optional[int] = None
     # --- discord bot ---
     discord_bot_enabled: Optional[bool] = None

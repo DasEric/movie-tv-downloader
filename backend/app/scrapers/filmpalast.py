@@ -8,7 +8,7 @@ import logging
 import re
 from urllib.parse import quote
 
-from app.scrapers._meta import absolutize, extract_title
+from app.scrapers._meta import absolutize, clean_search_query, extract_title
 from app.scrapers.base import BaseScraper, SearchResult, StreamCandidate
 from app.services import settings_store
 from app.services.hosters import headers_for, resolve_direct_url
@@ -36,6 +36,20 @@ class FilmpalastScraper(BaseScraper):
                 return []
 
         # Otherwise title search
+        results = await self._search_once(query)
+
+        # Retry with a loosened query (drop release year / bracketed
+        # qualifiers) if the exact string found nothing — filmpalast's
+        # title search often misses "Title 2021" but hits "Title".
+        if not results:
+            cleaned = clean_search_query(query)
+            if cleaned and cleaned.lower() != query.lower():
+                log.info("filmpalast: retrying search %r as %r", query, cleaned)
+                results = await self._search_once(cleaned)
+
+        return results
+
+    async def _search_once(self, query: str) -> list[SearchResult]:
         url = f"{BASE}/search/title/{quote(query)}"
         try:
             html = await get(url)

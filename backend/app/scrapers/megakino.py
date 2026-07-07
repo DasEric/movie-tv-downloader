@@ -37,6 +37,7 @@ from bs4 import BeautifulSoup
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.config import settings
+from app.scrapers._meta import clean_search_query
 from app.scrapers.base import BaseScraper, SearchResult, StreamCandidate
 from app.services.hosters import headers_for, resolve_direct_url
 from app.services.http import get, get_client, get_with_final_url
@@ -189,23 +190,37 @@ class MegakinoScraper(BaseScraper):
             base = await self.resolve_base()
             await self._ensure_token()
 
-            html = await get(
-                f"{base}/index.php",
-                params={
-                    "do": "search",
-                    "subaction": "search",
-                    "search_start": "0",
-                    "full_search": "0",
-                    "result_from": "1",
-                    "story": query,
-                },
-                check_captcha=False,
-            )
-            return self._parse_search(html, base)
+            results = await self._search_once(base, query)
+
+            # Retry with a loosened query (drop release year / bracketed
+            # qualifiers) if the exact string found nothing — megakino's
+            # search index often misses "Title 2021" but hits "Title".
+            if not results:
+                cleaned = clean_search_query(query)
+                if cleaned and cleaned.lower() != query.strip().lower():
+                    log.info("megakino: retrying search %r as %r", query, cleaned)
+                    results = await self._search_once(base, cleaned)
+
+            return results
         except Exception as e:
             self._base_resolved = False
             log.warning("megakino search failed: %s", e)
             return []
+
+    async def _search_once(self, base: str, query: str) -> list[SearchResult]:
+        html = await get(
+            f"{base}/index.php",
+            params={
+                "do": "search",
+                "subaction": "search",
+                "search_start": "0",
+                "full_search": "0",
+                "result_from": "1",
+                "story": query,
+            },
+            check_captcha=False,
+        )
+        return self._parse_search(html, base)
 
     async def discover(self, page: int = 1, category: str | None = None) -> list[SearchResult]:
         try:

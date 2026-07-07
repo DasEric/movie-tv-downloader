@@ -244,3 +244,21 @@ def extract_title(html: str, fallback: str = "") -> str:
     title = _STAFFEL_PREFIX_RE.sub("", title)
     title = _EPISODE_PREFIX_RE.sub("", title)
     return title.strip() or fallback
+
+
+_QUERY_PAREN_RE = re.compile(r"\s*[\(\[\{][^)\]}]*[\)\]}]")
+_QUERY_YEAR_RE = re.compile(r"\s*\b(?:19|20)\d{2}\b")
+
+
+def clean_search_query(query: str) -> str:
+    """Loosen a title query so a picky site search index still matches it.
+
+    Users often type extra tokens the site doesn't index — a release year or
+    bracketed qualifiers ("Dune (2021)", "Tatort [HD]"). We strip those so a
+    retry can find the title. Returns the cleaned query; may equal the input
+    (callers should only retry when it actually changed).
+    """
+    cleaned = _QUERY_PAREN_RE.sub("", query)
+    cleaned = _QUERY_YEAR_RE.sub("", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -–—:·|")
+    return cleaned.strip()

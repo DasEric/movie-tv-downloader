@@ -46,3 +46,9 @@ services:
       - ${TV_PATH:-./data/tv}:/tv
       - ${CONFIG_PATH:-./data/config}:/config
       - ${TMP_PATH:-./data/tmp}:/tmp/h0melab
+      # --- Optional: separate libraries per source ---
+      # Mount extra volumes here, then point a source at the matching path
+      # under Settings → "Speicherpfade pro Quelle" (e.g. AniWorld → /anime).
+      # The in-container path (right side) is what you type in the UI.
+      # - ${ANIME_TV_PATH:-./data/anime}:/anime
+      # - ${ANIME_MOVIES_PATH:-./data/anime-movies}:/anime-movies
