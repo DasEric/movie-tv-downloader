@@ -12,6 +12,19 @@ Default UI:  http://<host>:8080
 
 Sources: **serienstream.to** (s.to), **aniworld.to**, **burning-series.io**,
 **megakino**, **filmpalast.to**, **kinox.to**.
+---
+# IMPORTANT
+## Project Status
+
+This project will likely be archived in the near future.
+
+I have contacted the developers of the AniWorld Downloader and asked whether they would be interested in adding support for the websites currently handled by this project. If they decide to implement these additional sources, I will archive this repository and recommend using the AniWorld Downloader instead.
+
+The main reason for this decision is that maintaining this project requires significantly more time than I originally expected. As a solo developer, I can't keep up with the workload or match the pace of a larger development team. The AniWorld Downloader already has a well-maintained codebase and features such as an s.to CAPTCHA bypass, making it a more complete long-term solution.
+
+If the AniWorld team adds support for the remaining sources, this repository will be archived and this README will be updated to point users to the AniWorld Downloader.
+
+If that does **not** happen, this project will remain available. However, development will be limited, and updates will likely be released only occasionally.
 
 ---
 
