@@ -1,6 +1,6 @@
 # IMPORTANT
 
-This project has been discontinued and will be archived.
+This project has been discontinued and will be archived. Use [THIS](https://github.com/phoenixthrush/AniWorld-Downloader) instead.
 
 You can continue using it as long as it still works, but there will be no further development or updates for this repository.
 
