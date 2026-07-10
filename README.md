@@ -16,15 +16,13 @@ Sources: **serienstream.to** (s.to), **aniworld.to**, **burning-series.io**,
 # IMPORTANT
 ## Project Status
 
-This project will likely be archived in the near future.
+This project has been discontinued and will be archived.
 
-I have contacted the developers of the AniWorld Downloader and asked whether they would be interested in adding support for the websites currently handled by this project. If they decide to implement these additional sources, I will archive this repository and recommend using the AniWorld Downloader instead.
+You can continue using it as long as it still works, but there will be no further development or updates for this repository.
 
-The main reason for this decision is that maintaining this project requires significantly more time than I originally expected. As a solo developer, I can't keep up with the workload or match the pace of a larger development team. The AniWorld Downloader already has a well-maintained codebase and features such as an s.to CAPTCHA bypass, making it a more complete long-term solution.
+I will try to contribute to AniWorld and help bring some of the features from this project into their ecosystem. AniWorld is simply better positioned for long-term development, and I see much more potential in their project going forward.
 
-If the AniWorld team adds support for the remaining sources, this repository will be archived and this README will be updated to point users to the AniWorld Downloader.
-
-If that does **not** happen, this project will remain available. However, development will be limited, and updates will likely be released only occasionally.
+Thank you to everyone who used, tested, or contributed to this project.
 
 ---
 
