@@ -1,3 +1,15 @@
+# IMPORTANT
+
+This project has been discontinued and will be archived.
+
+You can continue using it as long as it still works, but there will be no further development or updates for this repository.
+
+I will try to contribute to AniWorld and help bring some of the features from this project into their ecosystem. AniWorld is simply better positioned for long-term development, and I see much more potential in their project going forward.
+
+Thank you to everyone who used, tested, or contributed to this project.
+
+---
+
 # Movie / TV Downloader
 
 > **Self-hosted auto-downloader** for Plex / Jellyfin / Emby, running in **one**
@@ -12,17 +24,6 @@ Default UI:  http://<host>:8080
 
 Sources: **serienstream.to** (s.to), **aniworld.to**, **burning-series.io**,
 **megakino**, **filmpalast.to**, **kinox.to**.
----
-# IMPORTANT
-## Project Status
-
-This project has been discontinued and will be archived.
-
-You can continue using it as long as it still works, but there will be no further development or updates for this repository.
-
-I will try to contribute to AniWorld and help bring some of the features from this project into their ecosystem. AniWorld is simply better positioned for long-term development, and I see much more potential in their project going forward.
-
-Thank you to everyone who used, tested, or contributed to this project.
 
 ---
 
